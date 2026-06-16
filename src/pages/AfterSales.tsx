@@ -73,13 +73,13 @@ export default function AfterSales() {
   const inventoryStats = useMemo(() => {
     const totalStock = parts.length;
     const inStock = parts.filter(p => p.status === 'in_stock').length;
-    const sold = parts.filter(p => p.status === 'sold' || p.status === 'shipped').length;
+    const sold = parts.filter(p => p.status === 'sold' || p.status === 'shipped' || p.status === 'delivered').length;
     const reserved = parts.filter(p => p.status === 'reserved').length;
 
     const byCategory: Record<string, { stock: number; sold: number; days: number }> = {};
     parts.forEach(p => {
       if (!byCategory[p.category]) byCategory[p.category] = { stock: 0, sold: 0, days: 0 };
-      if (p.status === 'in_stock' || p.status === 'reserved') {
+      if (p.status === 'in_stock' || p.status === 'reserved' || p.status === 'pending_shipment') {
         byCategory[p.category].stock++;
         byCategory[p.category].days += dayjs().diff(dayjs(p.inboundDate), 'day');
       } else {
@@ -119,11 +119,14 @@ export default function AfterSales() {
       const monthStart = date.startOf('month');
       const monthEnd = date.endOf('month');
       const soldCount = parts.filter(p =>
-        (p.status === 'sold' || p.status === 'shipped')
+        (p.status === 'sold' || p.status === 'shipped' || p.status === 'delivered')
       ).filter(p => {
-        const shipment = shipments.find(s => s.items.some(it => it.partId === p.id));
-        if (!shipment || !shipment.shippedDate) return false;
-        const d = dayjs(shipment.shippedDate);
+        const shipment = shipments.find(s =>
+          s.items.some(it => it.partId === p.id) && s.status !== 'cancelled'
+        );
+        if (!shipment || (!shipment.shippedDate && !shipment.receivedDate)) return false;
+        const saleDate = shipment.receivedDate || shipment.shippedDate || new Date().toISOString();
+        const d = dayjs(saleDate);
         return d.isAfter(monthStart) && d.isBefore(monthEnd);
       }).length;
       const inboundCount = parts.filter(p =>

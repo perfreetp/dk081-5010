@@ -63,6 +63,7 @@ export default function ShippingDesk() {
 
   const filteredShipments = useMemo(() => {
     return shipments.filter(s => {
+      if (s.status === 'cancelled') return false;
       const matchSearch = !searchText ||
         s.shipmentNumber.includes(searchText) ||
         s.customerName.includes(searchText) ||
@@ -74,15 +75,16 @@ export default function ShippingDesk() {
   }, [shipments, searchText, activeTab]);
 
   const stats = useMemo(() => {
-    const total = shipments.length;
-    const pending = shipments.filter(s => s.status === 'pending').length;
-    const shipped = shipments.filter(s => s.status === 'shipped').length;
-    const totalFees = shipments.reduce((s, x) => s + x.totalFees, 0);
+    const active = shipments.filter(s => s.status !== 'cancelled');
+    const total = active.length;
+    const pending = active.filter(s => s.status === 'pending').length;
+    const shipped = active.filter(s => s.status === 'shipped').length;
+    const totalFees = active.reduce((s, x) => s + x.totalFees, 0);
     return { total, pending, shipped, totalFees };
   }, [shipments]);
 
   const acceptedQuotes = quotes.filter(q =>
-    q.status === 'accepted' && !shipments.some(s => s.quoteId === q.id)
+    q.status === 'accepted' && !shipments.some(s => s.quoteId === q.id && s.status !== 'cancelled')
   );
 
   const openNewShipment = () => {
@@ -212,9 +214,30 @@ export default function ShippingDesk() {
         message.success('发货单已更新');
       } else {
         addShipment(data);
-        data.items.forEach((it: any) => {
-          updatePart(it.partId, { status: 'shipped' });
-        });
+        if (values.status === 'packed') {
+          data.items.forEach((it: any) => {
+            const part = parts.find(p => p.id === it.partId);
+            if (part && (part.status === 'in_stock' || part.status === 'reserved')) {
+              updatePart(it.partId, { status: 'pending_shipment' });
+            }
+          });
+        }
+        if (values.status === 'shipped') {
+          data.items.forEach((it: any) => {
+            const part = parts.find(p => p.id === it.partId);
+            if (part) {
+              updatePart(it.partId, { status: 'shipped' });
+            }
+          });
+        }
+        if (values.status === 'delivered') {
+          data.items.forEach((it: any) => {
+            const part = parts.find(p => p.id === it.partId);
+            if (part) {
+              updatePart(it.partId, { status: 'delivered' });
+            }
+          });
+        }
         message.success('发货单已创建');
       }
       setModalState({ open: false });
@@ -641,7 +664,7 @@ export default function ShippingDesk() {
           size="small"
           style={{ marginTop: 12, marginBottom: -12 }}
           items={[
-            { key: 'all', label: `全部 (${shipments.length})` },
+            { key: 'all', label: `全部 (${shipments.filter(s => s.status !== 'cancelled').length})` },
             { key: 'pending', label: `待处理 (${shipments.filter(s => s.status === 'pending').length})` },
             { key: 'packed', label: `已打包 (${shipments.filter(s => s.status === 'packed').length})` },
             { key: 'shipped', label: `运输中 (${shipments.filter(s => s.status === 'shipped').length})` },

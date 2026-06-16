@@ -250,7 +250,9 @@ export default function PartRating() {
           in_stock: { t: '在库', c: 'success' },
           reserved: { t: '已预留', c: 'warning' },
           sold: { t: '已售', c: 'default' },
-          pending_shipment: { t: '待发', c: 'processing' }
+          pending_shipment: { t: '待发货', c: 'processing' },
+          shipped: { t: '运输中', c: 'blue' },
+          delivered: { t: '已出库', c: 'purple' }
         };
         return <Tag color={map[s]?.c}>{map[s]?.t}</Tag>;
       }

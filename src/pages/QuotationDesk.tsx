@@ -120,19 +120,22 @@ export default function QuotationDesk() {
     form.resetFields();
     setSelectedCustomerId('');
     if (preselectedParts && preselectedParts.length > 0) {
-      const newItems: QuoteItem[] = preselectedParts.map(p => ({
-        partId: p.id,
-        partName: p.name,
-        sku: p.sku,
-        quantity: 1,
-        unitPrice: p.basePrice,
-        originalPrice: p.basePrice,
-        discount: 0,
-        subtotal: p.basePrice,
-        warrantyDays: p.warrantyDays,
-        remark: '',
-        photos: [...(p.photos || [])]
-      }));
+      const newItems: QuoteItem[] = preselectedParts.map(p => {
+        const unitPrice = p.basePrice;
+        return {
+          partId: p.id,
+          partName: p.name,
+          sku: p.sku,
+          quantity: 1,
+          unitPrice,
+          originalPrice: p.basePrice,
+          discount: 0,
+          subtotal: p.basePrice,
+          warrantyDays: p.warrantyDays,
+          remark: '',
+          photos: [...(p.photos || [])]
+        };
+      });
       setQuoteItems(newItems);
     } else {
       setQuoteItems([]);
@@ -145,7 +148,7 @@ export default function QuotationDesk() {
       bottomPrice: 0,
       remark: ''
     });
-    setQuoteModal({ open: true });
+    setQuoteModal({ open: true, editing: undefined });
   };
 
   const closeQuoteModal = () => {

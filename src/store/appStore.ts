@@ -503,7 +503,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!shipment) return;
     const updatedParts = state.parts.map(p => {
       const match = shipment.items.find(it => it.partId === p.id);
-      if (match && (p.status === 'pending_shipment' || p.status === 'shipped')) {
+      if (match && (p.status === 'pending_shipment' || p.status === 'shipped' || p.status === 'delivered')) {
         return {
           ...p,
           status: 'in_stock' as const,
