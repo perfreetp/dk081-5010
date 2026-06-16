@@ -56,6 +56,9 @@ interface AppState {
   addShipment: (shipment: Omit<Shipment, 'id' | 'createdAt'>) => void;
   updateShipment: (id: string, shipment: Partial<Shipment>) => void;
   cancelShipment: (shipmentId: string) => void;
+  markShipmentPacked: (shipmentId: string) => void;
+  markShipmentShipped: (shipmentId: string, trackingInfo?: { logisticsCompany?: string; trackingNumber?: string }) => void;
+  markShipmentDelivered: (shipmentId: string) => void;
 
   addWarrantyClaim: (claim: Omit<WarrantyClaim, 'id' | 'createdAt'>) => void;
   updateWarrantyClaim: (id: string, claim: Partial<WarrantyClaim>) => void;
@@ -516,6 +519,73 @@ export const useAppStore = create<AppState>((set, get) => ({
       shipments: state.shipments.map(s => s.id === shipmentId ? {
         ...s,
         status: 'cancelled' as const
+      } : s)
+    });
+    saveToLocalStorage(get());
+  },
+  markShipmentPacked: (shipmentId) => {
+    const state = get();
+    const shipment = state.shipments.find(s => s.id === shipmentId);
+    if (!shipment) return;
+    set({
+      shipments: state.shipments.map(s => s.id === shipmentId ? {
+        ...s,
+        status: 'packed' as const,
+        updatedAt: now()
+      } : s)
+    });
+    saveToLocalStorage(get());
+  },
+  markShipmentShipped: (shipmentId, trackingInfo) => {
+    const state = get();
+    const shipment = state.shipments.find(s => s.id === shipmentId);
+    if (!shipment) return;
+    const updatedParts = state.parts.map(p => {
+      const match = shipment.items.find(it => it.partId === p.id);
+      if (match && p.status === 'pending_shipment') {
+        return {
+          ...p,
+          status: 'shipped' as const,
+          updatedAt: now()
+        };
+      }
+      return p;
+    });
+    set({
+      parts: updatedParts,
+      shipments: state.shipments.map(s => s.id === shipmentId ? {
+        ...s,
+        status: 'shipped' as const,
+        shippedDate: now(),
+        logisticsCompany: trackingInfo?.logisticsCompany,
+        trackingNumber: trackingInfo?.trackingNumber,
+        updatedAt: now()
+      } : s)
+    });
+    saveToLocalStorage(get());
+  },
+  markShipmentDelivered: (shipmentId) => {
+    const state = get();
+    const shipment = state.shipments.find(s => s.id === shipmentId);
+    if (!shipment) return;
+    const updatedParts = state.parts.map(p => {
+      const match = shipment.items.find(it => it.partId === p.id);
+      if (match && p.status === 'shipped') {
+        return {
+          ...p,
+          status: 'delivered' as const,
+          updatedAt: now()
+        };
+      }
+      return p;
+    });
+    set({
+      parts: updatedParts,
+      shipments: state.shipments.map(s => s.id === shipmentId ? {
+        ...s,
+        status: 'delivered' as const,
+        receivedDate: now(),
+        updatedAt: now()
       } : s)
     });
     saveToLocalStorage(get());

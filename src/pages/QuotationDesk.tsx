@@ -140,9 +140,27 @@ export default function QuotationDesk() {
     form.setFieldsValue({
       validUntil: dayjs().add(7, 'day'),
       taxIncluded: true,
-      paymentMethod: '对公转账'
+      paymentMethod: '对公转账',
+      shippingFee: 0,
+      bottomPrice: 0,
+      remark: ''
     });
     setQuoteModal({ open: true });
+  };
+
+  const closeQuoteModal = () => {
+    form.resetFields();
+    setSelectedCustomerId('');
+    setQuoteItems([]);
+    form.setFieldsValue({
+      validUntil: dayjs().add(7, 'day'),
+      taxIncluded: true,
+      paymentMethod: '对公转账',
+      shippingFee: 0,
+      bottomPrice: 0,
+      remark: ''
+    });
+    setQuoteModal({ open: false });
   };
 
   const openEditQuote = (quote: Quote) => {
@@ -165,6 +183,9 @@ export default function QuotationDesk() {
       const unitPrice = selectedCustomerId && customer
         ? calculatePrice(p.basePrice, customer.type, p.category, p.condition)
         : p.basePrice;
+      const strategy = selectedCustomerId && customer
+        ? getMatchedStrategy(customer.type, p.category, p.condition)
+        : null;
       return {
         partId: p.id,
         partName: p.name,
@@ -176,7 +197,15 @@ export default function QuotationDesk() {
         subtotal: unitPrice,
         warrantyDays: p.warrantyDays,
         remark: '',
-        photos: [...(p.photos || [])]
+        photos: [...(p.photos || [])],
+        appliedStrategyId: strategy?.id,
+        appliedStrategyName: strategy?.description,
+        priceBreakdown: strategy ? {
+          basePrice: p.basePrice,
+          markupRate: strategy.markupRate,
+          discountRate: strategy.discountRate,
+          finalPrice: unitPrice
+        } : undefined
       };
     });
     setQuoteItems([...quoteItems, ...newItems]);
@@ -718,15 +747,15 @@ export default function QuotationDesk() {
       <Modal
         title={quoteModal.editing ? `编辑报价单 - ${quoteModal.editing.quoteNumber}` : '新建报价单'}
         open={quoteModal.open}
-        onCancel={() => setQuoteModal({ open: false })}
+        onCancel={closeQuoteModal}
         onOk={submitQuote}
         width={1100}
         okText="保存并发送"
         footer={[
-          <Button key="cancel" onClick={() => setQuoteModal({ open: false })}>取消</Button>,
+          <Button key="cancel" onClick={closeQuoteModal}>取消</Button>,
           <Button key="draft" icon={<SaveOutlined />} onClick={() => {
             message.info('已保存为草稿');
-            setQuoteModal({ open: false });
+            closeQuoteModal();
           }}>存草稿</Button>,
           <Button key="submit" type="primary" icon={<SendOutlined />} onClick={submitQuote}>保存并发送</Button>
         ]}
@@ -747,11 +776,20 @@ export default function QuotationDesk() {
                         const part = parts.find(p => p.id === item.partId);
                         if (!part) return item;
                         const newPrice = calculatePrice(part.basePrice, cust.type, part.category, part.condition);
+                        const strategy = getMatchedStrategy(cust.type, part.category, part.condition);
                         return {
                           ...item,
                           unitPrice: newPrice,
                           discount: (item.originalPrice - newPrice) * item.quantity,
-                          subtotal: newPrice * item.quantity
+                          subtotal: newPrice * item.quantity,
+                          appliedStrategyId: strategy?.id,
+                          appliedStrategyName: strategy?.description,
+                          priceBreakdown: strategy ? {
+                            basePrice: part.basePrice,
+                            markupRate: strategy.markupRate,
+                            discountRate: strategy.discountRate,
+                            finalPrice: newPrice
+                          } : undefined
                         };
                       }));
                     }
@@ -823,6 +861,43 @@ export default function QuotationDesk() {
               columns={[
                 { title: 'SKU', dataIndex: 'sku', width: 160 },
                 { title: '配件名称', dataIndex: 'partName' },
+                {
+                  title: '报价规则', width: 200,
+                  render: (_, r: any) => {
+                    if (r.appliedStrategyName) {
+                      return (
+                        <Tooltip title={
+                          r.priceBreakdown
+                            ? `基准价: ¥${r.priceBreakdown.basePrice} → 加价+${r.priceBreakdown.markupRate}% → 折扣-${r.priceBreakdown.discountRate}% → 最终: ¥${r.priceBreakdown.finalPrice}`
+                            : '点击查看计算依据'
+                        }>
+                          <Tag color="blue" style={{ fontSize: 11 }}>
+                            💰 {r.appliedStrategyName}
+                          </Tag>
+                          {r.priceBreakdown && (
+                            <div style={{ fontSize: 10, color: '#8c8c8c', marginTop: 2 }}>
+                              ¥{r.priceBreakdown.basePrice} × (1+{r.priceBreakdown.markupRate}%) × (1-{r.priceBreakdown.discountRate}%)
+                            </div>
+                          )}
+                        </Tooltip>
+                      );
+                    }
+                    if (selectedCustomerId && customer) {
+                      const p = parts.find(x => x.id === r.partId);
+                      if (p) {
+                        const strategy = getMatchedStrategy(customer.type, p.category, p.condition);
+                        if (strategy) {
+                          return (
+                            <Tag color="processing" style={{ fontSize: 11 }}>
+                              ⚙️ {strategy.description}
+                            </Tag>
+                          );
+                        }
+                      }
+                    }
+                    return <span style={{ color: '#bfbfbf', fontSize: 11 }}>请先选择客户</span>;
+                  }
+                },
                 {
                   title: '数量', dataIndex: 'quantity', width: 90,
                   render: (v, r) => (

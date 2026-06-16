@@ -2,14 +2,15 @@ import { useState, useMemo } from 'react';
 import {
   Card, Table, Button, Space, Input, Select, DatePicker, Tag, Modal,
   Form, InputNumber, Upload, Divider, Row, Col, Statistic, Progress,
-  message, Popconfirm, Drawer, Descriptions, Badge
+  message, Popconfirm, Drawer, Descriptions, Badge, Tooltip, Image
 } from 'antd';
 import {
   PlusOutlined, SearchOutlined, CarOutlined, UnorderedListOutlined,
   CheckCircleOutlined, EditOutlined, DeleteOutlined, EyeOutlined,
-  UploadOutlined, AppstoreOutlined
+  UploadOutlined, AppstoreOutlined, PictureOutlined
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import type { UploadProps } from 'antd/es/upload';
 import { useAppStore } from '@/store/appStore';
 import type { Vehicle, Part } from '@/types';
 import dayjs from 'dayjs';
@@ -119,7 +120,7 @@ export default function VehicleInbound() {
       key: Date.now(),
       name: '', category: '', sku: '', oemNumber: '',
       condition: 'B', quantity: 1, costPrice: 0, basePrice: 0, minPrice: 0,
-      position: '', warrantyDays: 30
+      position: '', warrantyDays: 30, photos: []
     }]);
     partsForm.resetFields();
     setBatchModalOpen(true);
@@ -130,16 +131,55 @@ export default function VehicleInbound() {
       key: Date.now(),
       name: '', category: '', sku: '', oemNumber: '',
       condition: 'B', quantity: 1, costPrice: 0, basePrice: 0, minPrice: 0,
-      position: '', warrantyDays: 30
+      position: '', warrantyDays: 30, photos: []
     }]);
+  };
+
+  const updateBatchPart = (key: number, field: string, value: any) => {
+    setBatchParts(batchParts.map(p => p.key === key ? { ...p, [field]: value } : p));
   };
 
   const removeBatchRow = (key: number) => {
     setBatchParts(batchParts.filter(p => p.key !== key));
   };
 
-  const updateBatchPart = (key: number, field: string, value: any) => {
-    setBatchParts(batchParts.map(p => p.key === key ? { ...p, [field]: value } : p));
+  const updateBatchPartPhotos = (key: number, photos: string[]) => {
+    setBatchParts(batchParts.map(p => p.key === key ? { ...p, photos } : p));
+  };
+
+  const setRowCoverPhoto = (key: number, index: number) => {
+    const part = batchParts.find(p => p.key === key);
+    if (!part || index === 0) return;
+    const newPhotos = [...part.photos];
+    const [cover] = newPhotos.splice(index, 1);
+    newPhotos.unshift(cover);
+    updateBatchPartPhotos(key, newPhotos);
+    message.success('已设为封面图');
+  };
+
+  const removeRowPhoto = (key: number, index: number) => {
+    const part = batchParts.find(p => p.key === key);
+    if (!part) return;
+    const newPhotos = part.photos.filter((_: string, i: number) => i !== index);
+    updateBatchPartPhotos(key, newPhotos);
+  };
+
+  const getRowUploadProps = (key: number): UploadProps => {
+    const part = batchParts.find(p => p.key === key);
+    return {
+      multiple: true,
+      listType: 'picture-card',
+      showUploadList: false,
+      beforeUpload: (file) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const url = e.target?.result as string;
+          updateBatchPartPhotos(key, [...(part?.photos || []), url]);
+        };
+        reader.readAsDataURL(file as unknown as File);
+        return false;
+      }
+    };
   };
 
   const submitBatchParts = () => {
@@ -169,7 +209,7 @@ export default function VehicleInbound() {
       basePrice: p.basePrice,
       minPrice: p.minPrice,
       status: 'in_stock' as const,
-      photos: [],
+      photos: p.photos || [],
       inboundDate: new Date().toISOString(),
       shelfLocation: p.position || '',
       warrantyDays: p.warrantyDays,
@@ -462,7 +502,7 @@ export default function VehicleInbound() {
         open={batchModalOpen}
         onCancel={() => setBatchModalOpen(false)}
         onOk={submitBatchParts}
-        width={1300}
+        width={1600}
         okText="确认上架"
         footer={[
           <Button key="add" onClick={addBatchRow} icon={<PlusOutlined />}>添加一行</Button>,
@@ -558,6 +598,89 @@ export default function VehicleInbound() {
                 <InputNumber size="small" min={0} value={r.warrantyDays}
                   onChange={v => updateBatchPart(r.key, 'warrantyDays', v || 0)} style={{ width: '100%' }} />
               )
+            },
+            {
+              title: '实拍图 (封面)', width: 200,
+              render: (_, r) => {
+                const photos = r.photos || [];
+                return (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                    {photos.map((url: string, idx: number) => (
+                      <div
+                        key={idx}
+                        style={{
+                          position: 'relative',
+                          width: 48, height: 48,
+                          border: idx === 0 ? '2px solid #1677ff' : '1px solid #d9d9d9',
+                          borderRadius: 4,
+                          overflow: 'hidden'
+                        }}
+                      >
+                        <Image
+                          width={48} height={48}
+                          src={url}
+                          preview={{ src: url }}
+                          style={{ objectFit: 'cover' }}
+                        />
+                        {idx === 0 && (
+                          <div style={{
+                            position: 'absolute', top: 0, left: 0,
+                            background: '#1677ff', color: '#fff',
+                            fontSize: 10, padding: '0 3px',
+                            borderBottomRightRadius: 4
+                          }}>封面</div>
+                        )}
+                        {idx !== 0 && (
+                          <>
+                            <Tooltip title="设为封面">
+                              <Button
+                                type="text" size="small"
+                                icon={<PictureOutlined />}
+                                style={{
+                                  position: 'absolute', top: -4, right: -4,
+                                  width: 16, height: 16, padding: 0,
+                                  background: 'rgba(22,119,255,0.9)', color: '#fff',
+                                  fontSize: 8, lineHeight: '16px',
+                                  borderRadius: '50%', border: 'none'
+                                }}
+                                onClick={() => setRowCoverPhoto(r.key, idx)}
+                              />
+                            </Tooltip>
+                            <Tooltip title="删除">
+                              <Button
+                                type="text" size="small" danger
+                                icon={<DeleteOutlined />}
+                                style={{
+                                  position: 'absolute', bottom: -4, right: -4,
+                                  width: 16, height: 16, padding: 0,
+                                  background: 'rgba(255,77,79,0.9)', color: '#fff',
+                                  fontSize: 8, lineHeight: '16px',
+                                  borderRadius: '50%', border: 'none'
+                                }}
+                                onClick={() => removeRowPhoto(r.key, idx)}
+                              />
+                            </Tooltip>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                    <Upload {...getRowUploadProps(r.key)}>
+                      <div style={{
+                        width: 48, height: 48,
+                        border: '1px dashed #d9d9d9',
+                        borderRadius: 4,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        background: '#fafafa'
+                      }}>
+                        <PlusOutlined style={{ color: '#8c8c8c', fontSize: 16 }} />
+                      </div>
+                    </Upload>
+                  </div>
+                );
+              }
             },
             {
               title: '', width: 50, align: 'center',

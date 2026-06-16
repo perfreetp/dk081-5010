@@ -47,6 +47,9 @@ export default function ShippingDesk() {
   const addShipment = useAppStore(s => s.addShipment);
   const updateShipment = useAppStore(s => s.updateShipment);
   const cancelShipment = useAppStore(s => s.cancelShipment);
+  const markShipmentPacked = useAppStore(s => s.markShipmentPacked);
+  const markShipmentShipped = useAppStore(s => s.markShipmentShipped);
+  const markShipmentDelivered = useAppStore(s => s.markShipmentDelivered);
   const updatePart = useAppStore(s => s.updatePart);
   const currentUser = useAppStore(s => s.currentUser);
   const { modal } = App.useApp();
@@ -145,7 +148,8 @@ export default function ShippingDesk() {
         partId: item.partId,
         partName: item.partName,
         sku: item.sku,
-        quantity: item.quantity
+        quantity: item.quantity,
+        photos: [...(item.photos || [])]
       })),
       logisticsFee: 0,
       woodPackingFee: 0,
@@ -171,13 +175,16 @@ export default function ShippingDesk() {
         customerId: values.customerId,
         customerName: values.customerName,
         shippingMethod: values.shippingMethod,
-        items: items.map((it: any) => ({
-          partId: it.partId,
-          partName: it.partName,
-          sku: it.sku,
-          quantity: it.quantity,
-          photos: []
-        })),
+        items: items.map((it: any) => {
+          const part = parts.find(p => p.id === it.partId);
+          return {
+            partId: it.partId,
+            partName: it.partName,
+            sku: it.sku,
+            quantity: it.quantity,
+            photos: it.photos && it.photos.length > 0 ? [...it.photos] : [...(part?.photos || [])]
+          };
+        }),
         receiver: values.receiver,
         receiverPhone: values.receiverPhone,
         receiverAddress: values.receiverAddress,
@@ -232,6 +239,194 @@ export default function ShippingDesk() {
   const removeItem = (key: string) => {
     const items = shippingItems.filter((it: any) => it.key !== key);
     form.setFieldsValue({ items });
+  };
+
+  const handlePrint = () => {
+    if (!printModal) return;
+    const s = printModal.shipment;
+    const type = printModal.type;
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>${type === 'self' ? '自提单' : '打包清单'} - ${s.shipmentNumber}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #fff;
+    padding: 30px 40px;
+    font-size: 14px;
+    color: #262626;
+  }
+  .print-header { text-align: center; margin-bottom: 20px; }
+  .print-header h1 { font-size: 24px; font-weight: 700; color: #262626; }
+  .print-header .sub { color: #666; margin-top: 8px; font-size: 13px; }
+  .print-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 16px 0;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #1677ff;
+  }
+  .info-row { display: flex; flex-wrap: wrap; margin-bottom: 20px; }
+  .info-row .col { width: 50%; line-height: 2; }
+  .info-row p { margin: 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+    font-size: 13px;
+  }
+  th, td {
+    border: 1px solid #d9d9d9;
+    padding: 8px 10px;
+    text-align: left;
+  }
+  th {
+    background: #fafafa;
+    font-weight: 600;
+    text-align: center;
+  }
+  td.center, th.center { text-align: center; }
+  td.right, th.right { text-align: right; }
+  .part-image {
+    width: 60px;
+    height: 60px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid #e8e8e8;
+    display: block;
+    margin: 0 auto;
+  }
+  .no-image {
+    width: 60px;
+    height: 60px;
+    margin: 0 auto;
+    background: #f5f5f5;
+    border: 1px dashed #d9d9d9;
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #bfbfbf;
+    font-size: 10px;
+    line-height: 1.2;
+  }
+  .no-image .icon { font-size: 20px; margin-bottom: 2px; }
+  .logistics-row {
+    display: flex;
+    gap: 30px;
+    margin-top: 20px;
+    font-size: 14px;
+  }
+  .print-footer {
+    margin-top: 30px;
+    padding-top: 16px;
+    border-top: 1px dashed #d9d9d9;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+  .print-footer .contact { font-size: 12px; color: #666; line-height: 1.8; }
+  .print-footer .sign { font-size: 13px; text-align: right; }
+  .print-footer .sign p { margin-bottom: 30px; }
+  @media print {
+    body { padding: 0; }
+    @page { margin: 15mm; }
+  }
+</style>
+</head>
+<body>
+  <div class="print-header">
+    <h1>${type === 'self' ? '🏢 拆车场配件自提单' : '📦 发货打包清单'}</h1>
+    <div class="sub">单号: ${s.shipmentNumber}</div>
+  </div>
+  <div class="print-title">${type === 'self' ? '自提信息' : '发货信息'}</div>
+  <div class="info-row">
+    <div class="col">
+      <p><strong>客户名称：</strong>${s.customerName}</p>
+      <p><strong>收件人：</strong>${s.receiver}</p>
+      <p><strong>联系电话：</strong>${s.receiverPhone}</p>
+    </div>
+    <div class="col">
+      <p><strong>日期：</strong>${dayjs().format('YYYY年MM月DD日')}</p>
+      <p><strong>方式：</strong>${shippingMethodInfo[s.shippingMethod].label}</p>
+      ${s.shippingMethod !== 'self_pickup' ? `<p><strong>地址：</strong>${s.receiverAddress}</p>` : ''}
+    </div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:40px" class="center">序号</th>
+        <th style="width:80px" class="center">图片</th>
+        <th class="center">SKU编码</th>
+        <th class="center">配件名称</th>
+        <th style="width:80px" class="center">数量</th>
+        <th style="width:120px" class="center">备注</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${s.items.map((item, idx) => {
+        const photo = item.photos && item.photos.length > 0 ? item.photos[0] : '';
+        return `<tr>
+          <td class="center">${idx + 1}</td>
+          <td class="center">
+            ${photo
+              ? `<img src="${photo}" alt="${item.partName}" class="part-image" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+                 <div class="no-image" style="display:none;"><div class="icon">🖼️</div>暂无图片</div>`
+              : `<div class="no-image"><div class="icon">🖼️</div>暂无图片</div>`
+            }
+          </td>
+          <td>${item.sku}</td>
+          <td>${item.partName}</td>
+          <td class="center">${item.quantity}</td>
+          <td></td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table>
+  ${s.shippingMethod !== 'self_pickup' ? `
+  <div class="logistics-row">
+    <div><strong>物流公司：</strong>${s.logisticsCompany || '-'}</div>
+    <div><strong>运单号：</strong>${s.trackingNumber || '-'}</div>
+    <div><strong>合计件数：</strong>${s.packages}件</div>
+  </div>
+  ` : ''}
+  <div class="print-footer">
+    <div class="contact">
+      <p>📞 客服电话：400-XXX-XXXX</p>
+      <p>📍 仓库地址：XX市XX区XX路XX号拆车场</p>
+    </div>
+    <div class="sign">
+      ${type === 'self' ? `
+        <p>经办人签字：__________________</p>
+        <p>客户签字：__________________</p>
+      ` : `
+        <p>打包员：__________________</p>
+        <p>司机签字：__________________</p>
+        <p>客户签收：__________________</p>
+      `}
+    </div>
+  </div>
+</body>
+</html>`;
+    const w = window.open('', '_blank', 'width=900,height=700');
+    if (w) {
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.onload = () => {
+        setTimeout(() => {
+          w.focus();
+          w.print();
+        }, 300);
+      };
+    } else {
+      message.error('浏览器阻止了打印窗口弹出，请检查弹窗设置');
+    }
   };
 
   const columns: ColumnsType<Shipment> = [
@@ -320,23 +515,27 @@ export default function ShippingDesk() {
           )}
           {r.status === 'pending' && (
             <Button type="primary" size="small" onClick={() => {
-              updateShipment(r.id, { status: 'packed' });
+              markShipmentPacked(r.id);
               message.success('已标记为已打包');
             }}>已打包</Button>
           )}
           {r.status === 'packed' && (
             <Button type="primary" size="small" onClick={() => {
-              updateShipment(r.id, { status: 'shipped', shippedDate: new Date().toISOString() });
-              message.success('已发货');
+              markShipmentShipped(r.id, {
+                logisticsCompany: r.logisticsCompany,
+                trackingNumber: r.trackingNumber
+              });
+              message.success('已发货，配件状态已更新');
             }}>已发货</Button>
           )}
           {r.status === 'shipped' && (
             <Button type="link" size="small" onClick={() => {
               modal.confirm({
                 title: '确认签收？',
+                content: '签收后配件将标记为已出库，库存和售后统计将同步更新',
                 onOk: () => {
-                  updateShipment(r.id, { status: 'delivered', receivedDate: new Date().toISOString() });
-                  message.success('已确认签收');
+                  markShipmentDelivered(r.id);
+                  message.success('已确认签收，配件已标记为已出库');
                 }
               });
             }}>已签收</Button>
@@ -833,8 +1032,12 @@ export default function ShippingDesk() {
         open={!!printModal}
         onCancel={() => setPrintModal(null)}
         width={900}
-        okText="打印"
-        onOk={() => window.print()}
+        footer={[
+          <Button key="close" onClick={() => setPrintModal(null)}>关闭</Button>,
+          <Button key="print" type="primary" icon={<PrinterOutlined />} onClick={handlePrint}>
+            打印或保存为PDF
+          </Button>
+        ]}
       >
         {printModal && (
           <div className="print-content" id="print-area">

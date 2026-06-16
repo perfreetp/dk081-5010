@@ -1,7 +1,7 @@
 export type VehicleSource = 'insurance' | 'auction' | 'private' | 'scrap_station' | 'other';
 export type PartCondition = 'A' | 'B' | 'C' | 'D';
 export type CustomerType = 'repair_shop' | 'individual' | 'dealer' | 'insurance' | 'export';
-export type PartStatus = 'in_stock' | 'reserved' | 'sold' | 'pending_shipment' | 'shipped' | 'lost';
+export type PartStatus = 'in_stock' | 'reserved' | 'sold' | 'pending_shipment' | 'shipped' | 'delivered' | 'lost';
 export type QuoteStatus = 'draft' | 'sent' | 'negotiating' | 'accepted' | 'rejected' | 'expired';
 export type WarrantyClaimStatus = 'pending' | 'approved' | 'rejected' | 'completed';
 
@@ -120,6 +120,14 @@ export interface QuoteItem {
   warrantyDays: number;
   remark: string;
   photos: string[];
+  appliedStrategyId?: string;
+  appliedStrategyName?: string;
+  priceBreakdown?: {
+    basePrice: number;
+    markupRate: number;
+    discountRate: number;
+    finalPrice: number;
+  };
 }
 
 export interface Quote {
