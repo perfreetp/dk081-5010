@@ -46,6 +46,7 @@ export default function ShippingDesk() {
   const customers = useAppStore(s => s.customers);
   const addShipment = useAppStore(s => s.addShipment);
   const updateShipment = useAppStore(s => s.updateShipment);
+  const cancelShipment = useAppStore(s => s.cancelShipment);
   const updatePart = useAppStore(s => s.updatePart);
   const currentUser = useAppStore(s => s.currentUser);
   const { modal } = App.useApp();
@@ -339,6 +340,20 @@ export default function ShippingDesk() {
                 }
               });
             }}>已签收</Button>
+          )}
+          {r.status !== 'delivered' && r.status !== 'cancelled' && (
+            <Button type="link" size="small" danger onClick={() => {
+              modal.confirm({
+                title: '作废此发货单？',
+                content: '作废后相关配件将自动恢复为可售状态',
+                okText: '确认作废',
+                cancelText: '再想想',
+                onOk: () => {
+                  cancelShipment(r.id);
+                  message.success('发货单已作废，配件已释放回库存');
+                }
+              });
+            }}>作废</Button>
           )}
         </Space>
       )

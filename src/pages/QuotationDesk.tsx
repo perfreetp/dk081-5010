@@ -45,8 +45,11 @@ export default function QuotationDesk() {
   const reservePart = useAppStore(s => s.reservePart);
   const releasePart = useAppStore(s => s.releasePart);
   const calculatePrice = useAppStore(s => s.calculatePrice);
+  const getMatchedStrategy = useAppStore(s => s.getMatchedStrategy);
   const currentUser = useAppStore(s => s.currentUser);
   const checkExpiredReservations = useAppStore(s => s.checkExpiredReservations);
+  const acceptQuote = useAppStore(s => s.acceptQuote);
+  const cancelQuote = useAppStore(s => s.cancelQuote);
   const { modal } = App.useApp();
 
   const [activeTab, setActiveTab] = useState<'list' | 'inquiry'>('list');
@@ -115,9 +118,24 @@ export default function QuotationDesk() {
 
   const openNewQuote = (preselectedParts?: Part[]) => {
     form.resetFields();
-    setQuoteItems([]);
-    if (preselectedParts) {
-      addQuoteItems(preselectedParts);
+    setSelectedCustomerId('');
+    if (preselectedParts && preselectedParts.length > 0) {
+      const newItems: QuoteItem[] = preselectedParts.map(p => ({
+        partId: p.id,
+        partName: p.name,
+        sku: p.sku,
+        quantity: 1,
+        unitPrice: p.basePrice,
+        originalPrice: p.basePrice,
+        discount: 0,
+        subtotal: p.basePrice,
+        warrantyDays: p.warrantyDays,
+        remark: '',
+        photos: [...(p.photos || [])]
+      }));
+      setQuoteItems(newItems);
+    } else {
+      setQuoteItems([]);
     }
     form.setFieldsValue({
       validUntil: dayjs().add(7, 'day'),
@@ -205,6 +223,13 @@ export default function QuotationDesk() {
         return;
       }
       const cust = customers.find(c => c.id === values.customerId)!;
+      let matchedStrategy: any = null;
+      if (quoteItems.length > 0) {
+        const firstPart = parts.find(p => p.id === quoteItems[0].partId);
+        if (firstPart) {
+          matchedStrategy = getMatchedStrategy(cust.type, firstPart.category, firstPart.condition);
+        }
+      }
       const data = {
         quoteNumber: quoteModal.editing ? quoteModal.editing.quoteNumber :
           `QT${dayjs().format('YYYYMMDD')}${String(quotes.length + 1).padStart(3, '0')}`,
@@ -222,6 +247,8 @@ export default function QuotationDesk() {
         status: quoteModal.editing ? quoteModal.editing.status : 'sent' as const,
         validUntil: values.validUntil.toISOString(),
         negotiationHistory: quoteModal.editing?.negotiationHistory || [],
+        appliedStrategyId: matchedStrategy?.id,
+        appliedStrategyName: matchedStrategy?.description || '默认基准价',
         salesPerson: currentUser,
         remark: values.remark || ''
       };
@@ -273,6 +300,193 @@ export default function QuotationDesk() {
     });
   };
 
+  const handlePrint = () => {
+    if (!printModal) return;
+    const q = printModal;
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>报价单 - ${q.quoteNumber}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #fff;
+    padding: 30px 40px;
+    font-size: 14px;
+    color: #262626;
+  }
+  .print-header { text-align: center; margin-bottom: 20px; }
+  .print-header h1 { font-size: 24px; font-weight: 700; color: #262626; }
+  .print-header .sub { color: #666; margin-top: 8px; font-size: 13px; }
+  .print-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 16px 0;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #1677ff;
+  }
+  .info-row { display: flex; flex-wrap: wrap; margin-bottom: 20px; }
+  .info-row .col { width: 50%; line-height: 2; }
+  .info-row p { margin: 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+    font-size: 13px;
+  }
+  th, td {
+    border: 1px solid #d9d9d9;
+    padding: 8px 10px;
+    text-align: left;
+  }
+  th {
+    background: #fafafa;
+    font-weight: 600;
+    text-align: center;
+  }
+  td.center, th.center { text-align: center; }
+  td.right, th.right { text-align: right; }
+  .part-image {
+    width: 60px;
+    height: 60px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid #e8e8e8;
+    display: block;
+    margin: 0 auto;
+  }
+  .no-image {
+    width: 60px;
+    height: 60px;
+    margin: 0 auto;
+    background: #f5f5f5;
+    border: 1px dashed #d9d9d9;
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #bfbfbf;
+    font-size: 10px;
+    line-height: 1.2;
+  }
+  .no-image .icon { font-size: 20px; margin-bottom: 2px; }
+  .totals {
+    text-align: right;
+    font-size: 15px;
+    line-height: 2;
+  }
+  .totals .final {
+    font-size: 22px;
+    font-weight: 700;
+    color: #cf1322;
+    margin-top: 6px;
+  }
+  .print-footer {
+    margin-top: 30px;
+    padding-top: 16px;
+    border-top: 1px dashed #d9d9d9;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+  .print-footer .terms { font-size: 12px; color: #666; line-height: 1.8; }
+  .print-footer .sign { font-size: 13px; }
+  @media print {
+    body { padding: 0; }
+    @page { margin: 15mm; }
+  }
+</style>
+</head>
+<body>
+  <div class="print-header">
+    <h1>📋 拆车配件报价单</h1>
+    <div class="sub">专业拆车件 · 质保承诺 · 品质保证</div>
+  </div>
+  <div class="print-title">报价单编号：${q.quoteNumber}</div>
+  <div class="info-row">
+    <div class="col">
+      <p><strong>客户名称：</strong>${q.customerName}</p>
+      <p><strong>客户类型：</strong>${customerTypeLabels[q.customerType] || q.customerType}</p>
+      <p><strong>报价日期：</strong>${dayjs(q.createdAt).format('YYYY年MM月DD日')}</p>
+    </div>
+    <div class="col">
+      <p><strong>业务员：</strong>${q.salesPerson}</p>
+      <p><strong>付款方式：</strong>${q.paymentMethod}</p>
+      <p><strong>有效期至：</strong>${dayjs(q.validUntil).format('YYYY年MM月DD日')}</p>
+    </div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:40px" class="center">序号</th>
+        <th style="width:80px" class="center">图片</th>
+        <th class="center">SKU编码</th>
+        <th class="center">配件名称</th>
+        <th style="width:60px" class="center">数量</th>
+        <th style="width:100px" class="center">单价(元)</th>
+        <th style="width:100px" class="center">小计(元)</th>
+        <th style="width:80px" class="center">质保期</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${q.items.map((item, idx) => {
+        const photo = item.photos && item.photos.length > 0 ? item.photos[0] : '';
+        return `<tr>
+          <td class="center">${idx + 1}</td>
+          <td class="center">
+            ${photo
+              ? `<img src="${photo}" alt="${item.partName}" class="part-image" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+                 <div class="no-image" style="display:none;"><div class="icon">🖼️</div>暂无图片</div>`
+              : `<div class="no-image"><div class="icon">🖼️</div>暂无图片</div>`
+            }
+          </td>
+          <td>${item.sku}</td>
+          <td>${item.partName}</td>
+          <td class="center">${item.quantity}</td>
+          <td class="right">${item.unitPrice}</td>
+          <td class="right">${item.subtotal}</td>
+          <td class="center">${item.warrantyDays}天</td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table>
+  <div class="totals">
+    <p>原价合计：<strong>¥${q.totalAmount.toLocaleString()}</strong></p>
+    <p style="color:#52c41a">优惠金额：<strong>-¥${q.discountAmount.toLocaleString()}</strong></p>
+    <p>运费：<strong>¥${q.shippingFee}</strong></p>
+    <p class="final">最终报价：¥${q.finalAmount.toLocaleString()} （${q.taxIncluded ? '含税' : '未税'}）</p>
+  </div>
+  <div class="print-footer">
+    <div class="terms">
+      <p><strong>备注条款：</strong></p>
+      <p>${q.remark || '1. 本报价单有效期内有效；2. 质保期内非人为损坏免费保修；3. 付款后安排发货。'}</p>
+    </div>
+    <div class="sign">
+      <p style="margin-top:40px;">业务员签字：__________________ &nbsp;&nbsp; 客户确认：__________________</p>
+    </div>
+  </div>
+</body>
+</html>`;
+    const w = window.open('', '_blank', 'width=900,height=700');
+    if (w) {
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.onload = () => {
+        setTimeout(() => {
+          w.focus();
+          w.print();
+        }, 300);
+      };
+    } else {
+      message.error('浏览器阻止了打印窗口弹出，请检查弹窗设置');
+    }
+  };
+
   const quoteColumns: ColumnsType<Quote> = [
     {
       title: '报价单号', dataIndex: 'quoteNumber', width: 150, fixed: 'left',
@@ -284,6 +498,11 @@ export default function QuotationDesk() {
         <div>
           <div style={{ fontWeight: 600 }}>{r.customerName}</div>
           <Tag color="blue" style={{ marginTop: 4 }}>{customerTypeLabels[r.customerType]}</Tag>
+          {r.appliedStrategyName && (
+            <div style={{ color: '#8c8c8c', fontSize: 11, marginTop: 4 }}>
+              💰 策略：{r.appliedStrategyName}
+            </div>
+          )}
         </div>
       )
     },
@@ -362,17 +581,33 @@ export default function QuotationDesk() {
             <Button type="link" size="small" onClick={() => {
               modal.confirm({
                 title: '确认成交？',
-                content: `确认此报价以 ¥${r.acceptedPrice || r.finalAmount} 成交，将锁定配件并转入发货流程`,
+                content: `确认此报价以 ¥${r.acceptedPrice || r.finalAmount} 成交，将自动锁定配件并生成待处理发货单`,
                 onOk: () => {
-                  updateQuote(r.id, { status: 'accepted', acceptedPrice: r.acceptedPrice || r.finalAmount });
-                  message.success('已成交，请到发货台处理');
+                  const shipmentId = acceptQuote(r.id, r.acceptedPrice || r.finalAmount);
+                  if (shipmentId) {
+                    message.success('已成交！发货单已自动生成，请到发货台处理');
+                  } else {
+                    message.error('成交操作失败，请重试');
+                  }
                 }
               });
             }}>确认成交</Button>
           )}
+          {r.status !== 'accepted' && r.status !== 'rejected' && (
+            <Button type="link" size="small" danger onClick={() => {
+              modal.confirm({
+                title: '取消此报价单？',
+                content: '取消后将释放已预留/待发货的配件，状态变更为可售',
+                okText: '确认取消',
+                cancelText: '再想想',
+                onOk: () => { cancelQuote(r.id); message.success('报价已取消，配件已释放回库存'); }
+              });
+            }}>取消</Button>
+          )}
           <Button type="link" size="small" danger onClick={() => {
             modal.confirm({
               title: '删除报价单？',
+              content: '删除后无法恢复，相关库存状态不会自动变更，请谨慎操作',
               onOk: () => { deleteQuote(r.id); message.success('已删除'); }
             });
           }}>删除</Button>
@@ -822,8 +1057,10 @@ export default function QuotationDesk() {
         open={!!printModal}
         onCancel={() => setPrintModal(null)}
         width={900}
-        okText="打印"
-        onOk={() => window.print()}
+        footer={[
+          <Button key="cancel" onClick={() => setPrintModal(null)}>关闭</Button>,
+          <Button key="print" type="primary" icon={<PrinterOutlined />} onClick={handlePrint}>打印 / 保存为PDF</Button>
+        ]}
       >
         {printModal && (
           <div className="print-content" id="print-area">

@@ -97,6 +97,15 @@ export interface PricingStrategy {
   description: string;
   status: 'active' | 'inactive';
   createdAt: string;
+  effectiveDate: string;
+  changeHistory: {
+    time: string;
+    operator: string;
+    field: string;
+    oldValue: string;
+    newValue: string;
+    remark: string;
+  }[];
 }
 
 export interface QuoteItem {
@@ -130,6 +139,8 @@ export interface Quote {
   status: QuoteStatus;
   validUntil: string;
   acceptedPrice?: number;
+  appliedStrategyId?: string;
+  appliedStrategyName?: string;
   negotiationHistory: {
     time: string;
     operator: string;

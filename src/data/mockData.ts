@@ -196,29 +196,55 @@ export const mockCustomers: Customer[] = [
 export const mockPricingStrategies: PricingStrategy[] = [
   {
     id: 'PS1', customerType: 'repair_shop', markupRate: 60, discountRate: 8,
-    description: '维修厂通用策略', status: 'active', createdAt: d(300)
+    description: '维修厂通用策略', status: 'active', createdAt: d(300),
+    effectiveDate: d(300),
+    changeHistory: [
+      { time: d(300), operator: '管理员', field: '创建策略', oldValue: '-', newValue: '60%加价 / 8%折扣', remark: '新建维修厂通用报价规则' },
+      { time: d(150), operator: '管理员', field: 'discountRate', oldValue: '5', newValue: '8', remark: '维修厂竞争激烈，折扣上调3%' }
+    ]
   },
   {
     id: 'PS2', customerType: 'repair_shop', partCategory: '发动机',
     markupRate: 50, discountRate: 10,
-    description: '维修厂发动机件高量折扣', status: 'active', createdAt: d(280)
+    description: '维修厂发动机件高量折扣', status: 'active', createdAt: d(280),
+    effectiveDate: d(280),
+    changeHistory: [
+      { time: d(280), operator: '管理员', field: '创建策略', oldValue: '-', newValue: '50%加价 / 10%折扣', remark: '发动机件量大，单独设规则' }
+    ]
   },
   {
     id: 'PS3', customerType: 'dealer', markupRate: 40, discountRate: 15,
-    description: '批发商底价走量策略', status: 'active', createdAt: d(260)
+    description: '批发商底价走量策略', status: 'active', createdAt: d(260),
+    effectiveDate: d(260),
+    changeHistory: [
+      { time: d(260), operator: '管理员', field: '创建策略', oldValue: '-', newValue: '40%加价 / 15%折扣', remark: '批发商走量，底价规则' }
+    ]
   },
   {
     id: 'PS4', customerType: 'individual', markupRate: 80, discountRate: 0,
-    description: '个人客户零售价', status: 'active', createdAt: d(240)
+    description: '个人客户零售价', status: 'active', createdAt: d(240),
+    effectiveDate: d(240),
+    changeHistory: [
+      { time: d(240), operator: '管理员', field: '创建策略', oldValue: '-', newValue: '80%加价 / 0%折扣', remark: '个人客户零售，无折扣' }
+    ]
   },
   {
     id: 'PS5', customerType: 'insurance', markupRate: 50, discountRate: 5,
-    description: '保险公司合作价', status: 'active', createdAt: d(220)
+    description: '保险公司合作价', status: 'active', createdAt: d(220),
+    effectiveDate: d(220),
+    changeHistory: [
+      { time: d(220), operator: '管理员', field: '创建策略', oldValue: '-', newValue: '50%加价 / 5%折扣', remark: '保险公司长期合作价' }
+    ]
   },
   {
     id: 'PS6', customerType: 'repair_shop', condition: 'C',
     markupRate: 30, discountRate: 15,
-    description: 'C级件低价快出', status: 'inactive', createdAt: d(200)
+    description: 'C级件低价快出', status: 'inactive', createdAt: d(200),
+    effectiveDate: d(200),
+    changeHistory: [
+      { time: d(200), operator: '管理员', field: '创建策略', oldValue: '-', newValue: '30%加价 / 15%折扣', remark: 'C级瑕疵件快速清仓' },
+      { time: d(30), operator: '管理员', field: 'status', oldValue: 'active', newValue: 'inactive', remark: '暂时停用，等下批C级件入库再启用' }
+    ]
   }
 ];
 

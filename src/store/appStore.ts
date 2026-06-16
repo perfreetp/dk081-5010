@@ -3,6 +3,7 @@ import {
   Vehicle, Part, Customer, PricingStrategy, Quote, Shipment, WarrantyClaim
 } from '@/types';
 import { mockVehicles, mockParts, mockCustomers, mockPricingStrategies, mockQuotes, mockShipments, mockWarrantyClaims } from '@/data/mockData';
+import dayjs from 'dayjs';
 
 const STORAGE_KEY = 'dismantle_workbench_data';
 
@@ -38,19 +39,23 @@ interface AppState {
   updateCustomer: (id: string, customer: Partial<Customer>) => void;
   deleteCustomer: (id: string) => void;
 
-  addPricingStrategy: (strategy: Omit<PricingStrategy, 'id' | 'createdAt'>) => void;
+  addPricingStrategy: (strategy: Omit<PricingStrategy, 'id' | 'createdAt' | 'effectiveDate' | 'changeHistory'>) => void;
   updatePricingStrategy: (id: string, strategy: Partial<PricingStrategy>) => void;
   togglePricingStrategyStatus: (id: string) => void;
   deletePricingStrategy: (id: string) => void;
   calculatePrice: (basePrice: number, customerType: string, partCategory: string, condition: string) => number;
+  getMatchedStrategy: (customerType: string, partCategory: string, condition: string) => PricingStrategy | null;
 
   addQuote: (quote: Omit<Quote, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateQuote: (id: string, quote: Partial<Quote>) => void;
   deleteQuote: (id: string) => void;
   addNegotiation: (quoteId: string, offer: number, remark: string) => void;
+  acceptQuote: (quoteId: string, acceptedPrice?: number) => string | null;
+  cancelQuote: (quoteId: string) => void;
 
   addShipment: (shipment: Omit<Shipment, 'id' | 'createdAt'>) => void;
   updateShipment: (id: string, shipment: Partial<Shipment>) => void;
+  cancelShipment: (shipmentId: string) => void;
 
   addWarrantyClaim: (claim: Omit<WarrantyClaim, 'id' | 'createdAt'>) => void;
   updateWarrantyClaim: (id: string, claim: Partial<WarrantyClaim>) => void;
@@ -265,20 +270,68 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   addPricingStrategy: (strategy) => {
-    const newStrategy = { ...strategy, id: `PS${Date.now()}`, createdAt: now() };
+    const newStrategy = {
+      ...strategy,
+      id: `PS${Date.now()}`,
+      createdAt: now(),
+      effectiveDate: now(),
+      changeHistory: [{
+        time: now(),
+        operator: get().currentUser,
+        field: '创建策略',
+        oldValue: '-',
+        newValue: `${strategy.markupRate}%加价 / ${strategy.discountRate}%折扣`,
+        remark: '新建报价策略'
+      }]
+    };
     set((state) => ({ pricingStrategies: [...state.pricingStrategies, newStrategy] }));
     saveToLocalStorage(get());
   },
   updatePricingStrategy: (id, strategy) => {
+    const state = get();
+    const old = state.pricingStrategies.find(s => s.id === id);
+    if (!old) return;
+    const changes: any[] = [];
+    Object.keys(strategy).forEach(key => {
+      if (key === 'changeHistory') return;
+      const oldVal = String((old as any)[key] ?? '-');
+      const newVal = String((strategy as any)[key] ?? '-');
+      if (oldVal !== newVal) {
+        changes.push({
+          time: now(),
+          operator: state.currentUser,
+          field: key,
+          oldValue: oldVal,
+          newValue: newVal,
+          remark: '编辑策略'
+        });
+      }
+    });
     set((state) => ({
-      pricingStrategies: state.pricingStrategies.map(s => s.id === id ? { ...s, ...strategy } : s)
+      pricingStrategies: state.pricingStrategies.map(s => s.id === id ? {
+        ...s,
+        ...strategy,
+        changeHistory: [...(s.changeHistory || []), ...changes]
+      } : s)
     }));
     saveToLocalStorage(get());
   },
   togglePricingStrategyStatus: (id) => {
+    const state = get();
     set((state) => ({
       pricingStrategies: state.pricingStrategies.map(s =>
-        s.id === id ? { ...s, status: s.status === 'active' ? 'inactive' : 'active' } : s
+        s.id === id ? {
+          ...s,
+          status: s.status === 'active' ? 'inactive' : 'active',
+          changeHistory: [...(s.changeHistory || []), {
+            time: now(),
+            operator: state.currentUser,
+            field: 'status',
+            oldValue: s.status,
+            newValue: s.status === 'active' ? 'inactive' : 'active',
+            remark: s.status === 'active' ? '停用策略' : '启用策略'
+          }]
+        } : s
       )
     }));
     saveToLocalStorage(get());
@@ -289,7 +342,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
     saveToLocalStorage(get());
   },
-  calculatePrice: (basePrice, customerType, partCategory, condition) => {
+  getMatchedStrategy: (customerType, partCategory, condition) => {
     const state = get();
     const strategies = state.pricingStrategies.filter(s =>
       s.status === 'active' &&
@@ -297,12 +350,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       (!s.partCategory || s.partCategory === partCategory) &&
       (!s.condition || s.condition === condition)
     );
-    if (strategies.length === 0) return basePrice;
-    const strategy = strategies.sort((a, b) => {
+    if (strategies.length === 0) return null;
+    return strategies.sort((a, b) => {
       const scoreA = (a.partCategory ? 2 : 0) + (a.condition ? 1 : 0);
       const scoreB = (b.partCategory ? 2 : 0) + (b.condition ? 1 : 0);
       return scoreB - scoreA;
     })[0];
+  },
+  calculatePrice: (basePrice, customerType, partCategory, condition) => {
+    const strategy = get().getMatchedStrategy(customerType, partCategory, condition);
+    if (!strategy) return basePrice;
     return Math.round(basePrice * (1 + strategy.markupRate / 100) * (1 - strategy.discountRate / 100));
   },
 
@@ -336,6 +393,95 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
     saveToLocalStorage(get());
   },
+  acceptQuote: (quoteId, acceptedPrice) => {
+    const state = get();
+    const quote = state.quotes.find(q => q.id === quoteId);
+    if (!quote) return null;
+    const cust = state.customers.find(c => c.id === quote.customerId);
+    const finalPrice = acceptedPrice || quote.acceptedPrice || quote.finalAmount;
+    const updatedParts = state.parts.map(p => {
+      const match = quote.items.find(it => it.partId === p.id);
+      if (match && (p.status === 'in_stock' || p.status === 'reserved')) {
+        return {
+          ...p,
+          status: 'pending_shipment' as const,
+          reservedBy: undefined,
+          reservedUntil: undefined,
+          updatedAt: now()
+        };
+      }
+      return p;
+    });
+    const shipmentId = `S${Date.now()}`;
+    const newShipment = {
+      id: shipmentId,
+      shipmentNumber: `SH${dayjs().format('YYYYMMDD')}${String(state.shipments.length + 1).padStart(3, '0')}`,
+      quoteId: quote.id,
+      customerId: quote.customerId,
+      customerName: quote.customerName,
+      shippingMethod: 'express' as const,
+      items: quote.items.map(it => ({
+        partId: it.partId,
+        partName: it.partName,
+        sku: it.sku,
+        quantity: it.quantity,
+        photos: [...(it.photos || [])]
+      })),
+      receiver: cust?.contact || '',
+      receiverPhone: cust?.phone || '',
+      receiverAddress: cust?.address || '',
+      logisticsFee: 0,
+      woodPackingFee: 0,
+      otherFees: 0,
+      totalFees: 0,
+      insuranceFee: 0,
+      weight: 0,
+      packages: quote.items.length,
+      status: 'pending' as const,
+      operator: get().currentUser,
+      remark: `来自报价单 ${quote.quoteNumber}，成交金额 ¥${finalPrice}`,
+      createdAt: now()
+    };
+    set({
+      parts: updatedParts,
+      shipments: [...state.shipments, newShipment],
+      quotes: state.quotes.map(q => q.id === quoteId ? {
+        ...q,
+        status: 'accepted' as const,
+        acceptedPrice: finalPrice,
+        updatedAt: now()
+      } : q)
+    });
+    saveToLocalStorage(get());
+    return shipmentId;
+  },
+  cancelQuote: (quoteId) => {
+    const state = get();
+    const quote = state.quotes.find(q => q.id === quoteId);
+    if (!quote) return;
+    const updatedParts = state.parts.map(p => {
+      const match = quote.items.find(it => it.partId === p.id);
+      if (match && (p.status === 'pending_shipment' || p.status === 'reserved')) {
+        return {
+          ...p,
+          status: 'in_stock' as const,
+          reservedBy: undefined,
+          reservedUntil: undefined,
+          updatedAt: now()
+        };
+      }
+      return p;
+    });
+    set({
+      parts: updatedParts,
+      quotes: state.quotes.map(q => q.id === quoteId ? {
+        ...q,
+        status: 'rejected' as const,
+        updatedAt: now()
+      } : q)
+    });
+    saveToLocalStorage(get());
+  },
 
   addShipment: (shipment) => {
     const newShipment = { ...shipment, id: `S${Date.now()}`, createdAt: now() };
@@ -346,6 +492,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       shipments: state.shipments.map(s => s.id === id ? { ...s, ...shipment } : s)
     }));
+    saveToLocalStorage(get());
+  },
+  cancelShipment: (shipmentId) => {
+    const state = get();
+    const shipment = state.shipments.find(s => s.id === shipmentId);
+    if (!shipment) return;
+    const updatedParts = state.parts.map(p => {
+      const match = shipment.items.find(it => it.partId === p.id);
+      if (match && (p.status === 'pending_shipment' || p.status === 'shipped')) {
+        return {
+          ...p,
+          status: 'in_stock' as const,
+          reservedBy: undefined,
+          reservedUntil: undefined,
+          updatedAt: now()
+        };
+      }
+      return p;
+    });
+    set({
+      parts: updatedParts,
+      shipments: state.shipments.map(s => s.id === shipmentId ? {
+        ...s,
+        status: 'cancelled' as const
+      } : s)
+    });
     saveToLocalStorage(get());
   },
 

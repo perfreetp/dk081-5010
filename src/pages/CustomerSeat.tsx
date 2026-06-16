@@ -2,14 +2,16 @@ import { useState, useMemo } from 'react';
 import {
   Card, Table, Button, Space, Input, Select, Tag, Modal, Form,
   InputNumber, Divider, Row, Col, message, Drawer, Descriptions,
-  Avatar, Badge, Statistic, List, Popconfirm, Tabs, Switch, Tooltip
+  Avatar, Badge, Statistic, List, Popconfirm, Tabs, Switch, Tooltip,
+  Timeline, Empty
 } from 'antd';
 import {
   SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
   PhoneOutlined, WechatOutlined, CrownOutlined,
   RiseOutlined, GiftOutlined, SafetyCertificateOutlined,
   StarOutlined, TeamOutlined, UserOutlined, HeartOutlined,
-  SettingOutlined, CheckOutlined, StopOutlined, BarChartOutlined
+  SettingOutlined, CheckOutlined, StopOutlined, BarChartOutlined,
+  HistoryOutlined, ClockCircleOutlined
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useAppStore } from '@/store/appStore';
@@ -54,6 +56,7 @@ export default function CustomerSeat() {
   const [modal, setModal] = useState<{ open: boolean; editing?: Customer }>({ open: false });
   const [strategyModal, setStrategyModal] = useState<{ open: boolean; editing?: PricingStrategy }>({ open: false });
   const [detailDrawer, setDetailDrawer] = useState<Customer | null>(null);
+  const [strategyHistoryDrawer, setStrategyHistoryDrawer] = useState<PricingStrategy | null>(null);
   const [form] = Form.useForm();
   const [strategyForm] = Form.useForm();
   const [strategyTypeFilter, setStrategyTypeFilter] = useState<string>();
@@ -306,6 +309,10 @@ export default function CustomerSeat() {
       title: '说明', dataIndex: 'description', ellipsis: true
     },
     {
+      title: '生效时间', dataIndex: 'effectiveDate', width: 110,
+      render: d => d ? dayjs(d).format('YYYY-MM-DD') : '-'
+    },
+    {
       title: '状态', dataIndex: 'status', width: 100,
       render: (s, r) => (
         <Tooltip title={s === 'active' ? '点击停用' : '点击启用'}>
@@ -319,10 +326,11 @@ export default function CustomerSeat() {
       )
     },
     {
-      title: '操作', key: 'action', width: 150, fixed: 'right',
+      title: '操作', key: 'action', width: 200, fixed: 'right',
       render: (_, r) => (
         <Space size="small">
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openStrategyModal(r)}>编辑</Button>
+          <Button type="link" size="small" icon={<HistoryOutlined />} onClick={() => setStrategyHistoryDrawer(r)}>变更记录</Button>
           <Popconfirm
             title="确认删除该策略？"
             onConfirm={() => { deletePricingStrategy(r.id); message.success('已删除'); }}
@@ -823,6 +831,74 @@ export default function CustomerSeat() {
                 </>
               );
             })()}
+          </>
+        )}
+      </Drawer>
+
+      <Drawer
+        title={`策略变更记录 - ${strategyHistoryDrawer?.description}`}
+        open={!!strategyHistoryDrawer}
+        onClose={() => setStrategyHistoryDrawer(null)}
+        width={680}
+      >
+        {strategyHistoryDrawer && (
+          <>
+            <Card size="small" style={{ marginBottom: 16 }}>
+              <Descriptions bordered size="small" column={2}>
+                <Descriptions.Item label="适用客户">
+                  <Tag color={typeInfo[strategyHistoryDrawer.customerType]?.color}>
+                    {typeInfo[strategyHistoryDrawer.customerType]?.icon} {typeInfo[strategyHistoryDrawer.customerType]?.label}
+                  </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="适用范围">
+                  {strategyHistoryDrawer.partCategory || '全部品类'}
+                  {strategyHistoryDrawer.condition ? ` · ${strategyHistoryDrawer.condition}级` : ''}
+                </Descriptions.Item>
+                <Descriptions.Item label="加价率">
+                  <span style={{ color: '#fa8c16', fontWeight: 600 }}>+{strategyHistoryDrawer.markupRate}%</span>
+                </Descriptions.Item>
+                <Descriptions.Item label="折扣率">
+                  <span style={{ color: '#52c41a', fontWeight: 600 }}>-{strategyHistoryDrawer.discountRate}%</span>
+                </Descriptions.Item>
+                <Descriptions.Item label="生效时间">
+                  <ClockCircleOutlined style={{ marginRight: 4 }} />
+                  {strategyHistoryDrawer.effectiveDate
+                    ? dayjs(strategyHistoryDrawer.effectiveDate).format('YYYY-MM-DD HH:mm')
+                    : '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="创建时间">
+                  {dayjs(strategyHistoryDrawer.createdAt).format('YYYY-MM-DD HH:mm')}
+                </Descriptions.Item>
+              </Descriptions>
+            </Card>
+
+            <div className="detail-section-title" style={{ marginBottom: 12 }}>
+              <HistoryOutlined style={{ marginRight: 4 }} /> 变更历史
+            </div>
+            <Timeline
+              items={(strategyHistoryDrawer.changeHistory || []).slice().reverse().map((ch, idx) => ({
+                color: idx === 0 ? 'blue' : 'gray',
+                children: (
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>
+                      {ch.remark}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#595959', marginTop: 4 }}>
+                      字段「<code style={{ background: '#f5f5f5', padding: '1px 4px', borderRadius: 3 }}>{ch.field}</code>」
+                      从 <span style={{ color: '#ff4d4f' }}>{ch.oldValue}</span>
+                      {' → '}
+                      改为 <span style={{ color: '#52c41a' }}>{ch.newValue}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 6 }}>
+                      {dayjs(ch.time).format('YYYY-MM-DD HH:mm')} · 操作人：{ch.operator}
+                    </div>
+                  </div>
+                )
+              }))}
+            />
+            {(!strategyHistoryDrawer.changeHistory || strategyHistoryDrawer.changeHistory.length === 0) && (
+              <Empty description="暂无变更记录" />
+            )}
           </>
         )}
       </Drawer>

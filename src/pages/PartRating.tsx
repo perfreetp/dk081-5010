@@ -2,13 +2,16 @@ import { useState, useMemo } from 'react';
 import {
   Card, Table, Button, Space, Input, Select, Tag, Modal, Form,
   InputNumber, Divider, Row, Col, Rate, message, Radio,
-  Checkbox, Drawer, Descriptions, Avatar, Badge, List, Dropdown, Menu
+  Checkbox, Drawer, Descriptions, Avatar, Badge, List, Dropdown, Menu,
+  Upload, Image
 } from 'antd';
 import {
   SearchOutlined, FilterOutlined, CheckCircleOutlined,
   CloseCircleOutlined, ExclamationOutlined, EditOutlined,
-  CameraOutlined, StarOutlined, StarFilled
+  CameraOutlined, StarOutlined, StarFilled, UploadOutlined,
+  PictureOutlined, DeleteOutlined
 } from '@ant-design/icons';
+import type { UploadProps } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useAppStore } from '@/store/appStore';
 import type { Part, PartTest } from '@/types';
@@ -57,6 +60,7 @@ export default function PartRating() {
   const [editModal, setEditModal] = useState<Part | null>(null);
   const [detailDrawer, setDetailDrawer] = useState<Part | null>(null);
   const [form] = Form.useForm();
+  const [editPhotos, setEditPhotos] = useState<string[]>([]);
 
   const categories = useMemo(() => [...new Set(parts.map(p => p.category))], [parts]);
 
@@ -81,6 +85,7 @@ export default function PartRating() {
 
   const openEdit = (part: Part) => {
     setEditModal(part);
+    setEditPhotos([...(part.photos || [])]);
     form.setFieldsValue({
       name: part.name,
       category: part.category,
@@ -102,11 +107,40 @@ export default function PartRating() {
   const submitEdit = () => {
     form.validateFields().then(values => {
       if (editModal) {
-        updatePart(editModal.id, values);
+        updatePart(editModal.id, { ...values, photos: editPhotos });
         message.success('评级信息已更新');
         setEditModal(null);
       }
     });
+  };
+
+  const uploadProps: UploadProps = {
+    multiple: true,
+    listType: 'picture-card',
+    showUploadList: false,
+    beforeUpload: (file) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const url = e.target?.result as string;
+        setEditPhotos([...editPhotos, url]);
+      };
+      reader.readAsDataURL(file);
+      return false;
+    }
+  };
+
+  const setCoverPhoto = (index: number) => {
+    if (index === 0) return;
+    const newPhotos = [...editPhotos];
+    const [cover] = newPhotos.splice(index, 1);
+    newPhotos.unshift(cover);
+    setEditPhotos(newPhotos);
+    message.success('已设为封面图');
+  };
+
+  const removePhoto = (index: number) => {
+    const newPhotos = editPhotos.filter((_, i) => i !== index);
+    setEditPhotos(newPhotos);
   };
 
   const batchSetCondition = (condition: string) => {
@@ -460,6 +494,111 @@ export default function PartRating() {
                   </Form.Item>
                 </Col>
               </Row>
+
+              <div className="detail-section-title" style={{ marginBottom: 12 }}>
+                配件实拍图 <Tag color="blue" style={{ marginLeft: 8 }}>第一张为封面图</Tag>
+              </div>
+              <div style={{
+                border: '1px dashed #d9d9d9',
+                borderRadius: 8,
+                padding: 16,
+                minHeight: 120,
+                background: '#fafafa'
+              }}>
+                {editPhotos.length === 0 && (
+                  <div style={{
+                    textAlign: 'center',
+                    color: '#bfbfbf',
+                    padding: '20px 0',
+                    fontSize: 13
+                  }}>
+                    <PictureOutlined style={{ fontSize: 32, marginBottom: 8, display: 'block', margin: '0 auto 8px' }} />
+                    暂无实拍图，点击下方按钮上传
+                  </div>
+                )}
+                {editPhotos.length > 0 && (
+                  <Row gutter={12}>
+                    {editPhotos.map((photo, idx) => (
+                      <Col key={idx} style={{ marginBottom: 12 }}>
+                        <div style={{
+                          position: 'relative',
+                          width: 100,
+                          height: 100,
+                          borderRadius: 6,
+                          overflow: 'hidden',
+                          border: idx === 0 ? '2px solid #1677ff' : '1px solid #e8e8e8'
+                        }}>
+                          <Image
+                            src={photo}
+                            width={100}
+                            height={100}
+                            style={{ objectFit: 'cover' }}
+                            preview={{ mask: '查看大图' }}
+                          />
+                          {idx === 0 && (
+                            <div style={{
+                              position: 'absolute',
+                              top: 0,
+                              left: 0,
+                              background: '#1677ff',
+                              color: '#fff',
+                              fontSize: 11,
+                              padding: '2px 6px',
+                              borderBottomRightRadius: 4
+                            }}>封面</div>
+                          )}
+                          <div style={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            display: 'flex',
+                            background: 'rgba(0,0,0,0.6)'
+                          }}>
+                            {idx > 0 && (
+                              <Button
+                                type="text"
+                                size="small"
+                                style={{ flex: 1, color: '#fff', padding: '0 4px', fontSize: 11 }}
+                                icon={<StarOutlined />}
+                                onClick={() => setCoverPhoto(idx)}
+                              >封面</Button>
+                            )}
+                            <Button
+                              type="text"
+                              size="small"
+                              danger
+                              style={{ flex: 1, color: '#ff7875', padding: '0 4px', fontSize: 11 }}
+                              icon={<DeleteOutlined />}
+                              onClick={() => removePhoto(idx)}
+                            >删除</Button>
+                          </div>
+                        </div>
+                      </Col>
+                    ))}
+                    <Col>
+                      <Upload {...uploadProps}>
+                        <div style={{
+                          width: 100,
+                          height: 100,
+                          border: '1px dashed #d9d9d9',
+                          borderRadius: 6,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          background: '#fff',
+                          color: '#8c8c8c'
+                        }}>
+                          <UploadOutlined style={{ fontSize: 24, marginBottom: 4 }} />
+                          <div style={{ fontSize: 12 }}>上传图片</div>
+                        </div>
+                      </Upload>
+                    </Col>
+                  </Row>
+                )}
+              </div>
             </Form>
           </div>
         )}
