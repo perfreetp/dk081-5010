@@ -1,0 +1,62 @@
+{
+  "name": "dismantle-quotation-workbench",
+  "version": "1.0.0",
+  "description": "拆车场业务员和仓库员的桌面端报价工作台",
+  "main": "electron/main.js",
+  "author": "Dismantle Workbench Team",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
+    "electron:build": "npm run build && electron-builder",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "zustand": "^4.5.2",
+    "antd": "^5.16.0",
+    "@ant-design/icons": "^5.3.6",
+    "dayjs": "^1.11.10",
+    "react-router-dom": "^6.22.3",
+    "xlsx": "^0.18.5",
+    "uuid": "^9.0.1",
+    "recharts": "^2.12.5",
+    "clsx": "^2.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "@types/uuid": "^9.0.8",
+    "@vitejs/plugin-react": "^4.2.1",
+    "typescript": "^5.4.3",
+    "vite": "^5.2.8",
+    "electron": "^29.1.4",
+    "electron-builder": "^24.13.3",
+    "concurrently": "^8.2.2",
+    "wait-on": "^7.2.0",
+    "cross-env": "^7.0.3",
+    "@types/node": "^20.11.30",
+    "eslint": "^8.57.0"
+  },
+  "build": {
+    "appId": "com.dismantle.quotation",
+    "productName": "拆车场报价工作台",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
