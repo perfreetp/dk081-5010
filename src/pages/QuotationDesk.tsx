@@ -1,15 +1,16 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Card, Table, Button, Space, Input, Select, Tag, Modal, Form,
   InputNumber, Divider, Row, Col, message, Drawer, Descriptions,
   DatePicker, List, Timeline, Avatar, Badge, App, Steps, Tabs,
-  Tooltip, Empty, Upload
+  Tooltip, Empty, Upload, Image
 } from 'antd';
 import {
   SearchOutlined, PlusOutlined, SaveOutlined, SendOutlined,
   PrinterOutlined, ClockCircleOutlined, MinusCircleOutlined,
   HistoryOutlined, SwapOutlined, CheckCircleTwoTone,
-  ExclamationCircleTwoTone, TagOutlined, ShoppingCartOutlined
+  ExclamationCircleTwoTone, TagOutlined, ShoppingCartOutlined,
+  PictureOutlined
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useAppStore } from '@/store/appStore';
@@ -45,6 +46,7 @@ export default function QuotationDesk() {
   const releasePart = useAppStore(s => s.releasePart);
   const calculatePrice = useAppStore(s => s.calculatePrice);
   const currentUser = useAppStore(s => s.currentUser);
+  const checkExpiredReservations = useAppStore(s => s.checkExpiredReservations);
   const { modal } = App.useApp();
 
   const [activeTab, setActiveTab] = useState<'list' | 'inquiry'>('list');
@@ -55,8 +57,17 @@ export default function QuotationDesk() {
   const [inquiryDrawer, setInquiryDrawer] = useState(false);
   const [printModal, setPrintModal] = useState<Quote | null>(null);
   const [negotiationModal, setNegotiationModal] = useState<Quote | null>(null);
+  const [reserveModal, setReserveModal] = useState<{ open: boolean; quote?: Quote }>({ open: false });
+  const [reserveForm] = Form.useForm();
   const [negoForm] = Form.useForm();
   const [form] = Form.useForm();
+
+  useEffect(() => {
+    const released = checkExpiredReservations();
+    if (released > 0) {
+      message.info(`已自动释放 ${released} 个过期预留件`);
+    }
+  }, [checkExpiredReservations]);
 
   const [inquiryInput, setInquiryInput] = useState({
     carModel: '', year: 0, partName: '', category: ''
@@ -146,7 +157,8 @@ export default function QuotationDesk() {
         discount: p.basePrice - unitPrice,
         subtotal: unitPrice,
         warrantyDays: p.warrantyDays,
-        remark: ''
+        remark: '',
+        photos: [...(p.photos || [])]
       };
     });
     setQuoteItems([...quoteItems, ...newItems]);
@@ -235,15 +247,30 @@ export default function QuotationDesk() {
     });
   };
 
-  const reservePartsForQuote = (quote: Quote) => {
-    quote.items.forEach(item => {
-      const part = parts.find(p => p.id === item.partId);
-      if (part && part.status === 'in_stock') {
-        reservePart(part.id, quote.customerId, 3);
+  const openReserveModal = (quote: Quote) => {
+    reserveForm.resetFields();
+    reserveForm.setFieldsValue({
+      reservedUntil: dayjs().add(3, 'day')
+    });
+    setReserveModal({ open: true, quote });
+  };
+
+  const submitReserve = () => {
+    reserveForm.validateFields().then(values => {
+      if (reserveModal.quote) {
+        const reservedUntilDate = values.reservedUntil.toISOString();
+        reserveModal.quote.items.forEach(item => {
+          const part = parts.find(p => p.id === item.partId);
+          if (part && part.status === 'in_stock') {
+            reservePart(part.id, reserveModal.quote!.customerId, reservedUntilDate);
+          }
+        });
+        const dateStr = dayjs(reservedUntilDate).format('YYYY-MM-DD');
+        message.success(`已预留相关配件，保留至 ${dateStr}`);
+        updateQuote(reserveModal.quote.id, { status: 'negotiating' });
+        setReserveModal({ open: false });
       }
     });
-    message.success('已预留相关配件，保留3天');
-    updateQuote(quote.id, { status: 'negotiating' });
   };
 
   const quoteColumns: ColumnsType<Quote> = [
@@ -329,7 +356,7 @@ export default function QuotationDesk() {
             <Button type="link" size="small" onClick={() => setNegotiationModal(r)} icon={<HistoryOutlined />}>议价</Button>
           )}
           {r.status !== 'accepted' && (
-            <Button type="link" size="small" onClick={() => reservePartsForQuote(r)} icon={<ClockCircleOutlined />}>预留</Button>
+            <Button type="link" size="small" onClick={() => openReserveModal(r)} icon={<ClockCircleOutlined />}>预留</Button>
           )}
           {r.status === 'negotiating' && (
             <Button type="link" size="small" onClick={() => {
@@ -823,6 +850,7 @@ export default function QuotationDesk() {
               <thead>
                 <tr>
                   <th style={{ width: 40 }}>序号</th>
+                  <th style={{ width: 80 }}>图片</th>
                   <th>SKU编码</th>
                   <th>配件名称</th>
                   <th style={{ width: 60 }}>数量</th>
@@ -835,6 +863,31 @@ export default function QuotationDesk() {
                 {printModal.items.map((item, idx) => (
                   <tr key={item.partId}>
                     <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                    <td style={{ textAlign: 'center', padding: '8px 4px' }}>
+                      {item.photos && item.photos.length > 0 ? (
+                        <img
+                          src={item.photos[0]}
+                          alt={item.partName}
+                          className="print-part-image"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                            (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hide');
+                          }}
+                        />
+                      ) : null}
+                      {(!item.photos || item.photos.length === 0) && (
+                        <div className="no-image-placeholder">
+                          <PictureOutlined />
+                          <span>暂无图片</span>
+                        </div>
+                      )}
+                      {item.photos && item.photos.length > 0 && (
+                        <div className="no-image-placeholder hide" style={{ marginTop: -60 }}>
+                          <PictureOutlined />
+                          <span>暂无图片</span>
+                        </div>
+                      )}
+                    </td>
                     <td>{item.sku}</td>
                     <td>{item.partName}</td>
                     <td style={{ textAlign: 'center' }}>{item.quantity}</td>
@@ -868,6 +921,49 @@ export default function QuotationDesk() {
               </div>
             </div>
           </div>
+        )}
+      </Modal>
+
+      <Modal
+        title={reserveModal.quote ? `预留配件 - ${reserveModal.quote.quoteNumber}` : '预留配件'}
+        open={reserveModal.open}
+        onCancel={() => setReserveModal({ open: false })}
+        onOk={submitReserve}
+        width={500}
+        okText="确认预留"
+      >
+        {reserveModal.quote && (
+          <Form form={reserveForm} layout="vertical">
+            <Card size="small" style={{ marginBottom: 16, background: '#fff7e6' }}>
+              <div style={{ fontSize: 13, lineHeight: 1.8 }}>
+                <div><strong>客户：</strong>{reserveModal.quote.customerName}</div>
+                <div><strong>待预留配件：</strong>{reserveModal.quote.items.length} 件</div>
+                <div style={{ color: '#fa8c16' }}>
+                  <ClockCircleOutlined style={{ marginRight: 4 }} />
+                  预留期间库存将被锁定，过期后自动释放
+                </div>
+              </div>
+            </Card>
+            <Form.Item name="reservedUntil" label="预留截止日期" rules={[{ required: true, message: '请选择预留截止日期' }]}>
+              <DatePicker
+                style={{ width: '100%' }}
+                disabledDate={(d) => d.isBefore(dayjs().startOf('day'))}
+                placeholder="选择预留截止日期"
+                size="large"
+              />
+            </Form.Item>
+            <Row gutter={8}>
+              {[3, 7, 15, 30].map(days => (
+                <Col span={6} key={days}>
+                  <Button block onClick={() => {
+                    reserveForm.setFieldsValue({ reservedUntil: dayjs().add(days, 'day') });
+                  }}>
+                    {days}天
+                  </Button>
+                </Col>
+              ))}
+            </Row>
+          </Form>
         )}
       </Modal>
     </div>

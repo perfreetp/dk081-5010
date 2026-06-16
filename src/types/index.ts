@@ -95,6 +95,7 @@ export interface PricingStrategy {
   markupRate: number;
   discountRate: number;
   description: string;
+  status: 'active' | 'inactive';
   createdAt: string;
 }
 
@@ -109,6 +110,7 @@ export interface QuoteItem {
   subtotal: number;
   warrantyDays: number;
   remark: string;
+  photos: string[];
 }
 
 export interface Quote {

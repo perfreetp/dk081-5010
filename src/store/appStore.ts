@@ -4,6 +4,8 @@ import {
 } from '@/types';
 import { mockVehicles, mockParts, mockCustomers, mockPricingStrategies, mockQuotes, mockShipments, mockWarrantyClaims } from '@/data/mockData';
 
+const STORAGE_KEY = 'dismantle_workbench_data';
+
 interface AppState {
   vehicles: Vehicle[];
   parts: Part[];
@@ -14,8 +16,12 @@ interface AppState {
   warrantyClaims: WarrantyClaim[];
   currentUser: string;
   currentTime: string;
+  dataLoaded: boolean;
 
   initMockData: () => void;
+  loadFromStorage: () => Promise<boolean>;
+  saveToStorage: () => Promise<void>;
+  checkExpiredReservations: () => number;
 
   addVehicle: (vehicle: Omit<Vehicle, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateVehicle: (id: string, vehicle: Partial<Vehicle>) => void;
@@ -25,7 +31,7 @@ interface AppState {
   addPartsBatch: (parts: Omit<Part, 'id' | 'createdAt' | 'updatedAt'>[]) => void;
   updatePart: (id: string, part: Partial<Part>) => void;
   deletePart: (id: string) => void;
-  reservePart: (partId: string, customerId: string, days: number) => void;
+  reservePart: (partId: string, customerId: string, reservedUntilDate: string) => void;
   releasePart: (partId: string) => void;
 
   addCustomer: (customer: Omit<Customer, 'id' | 'createdAt' | 'updatedAt'>) => void;
@@ -34,6 +40,7 @@ interface AppState {
 
   addPricingStrategy: (strategy: Omit<PricingStrategy, 'id' | 'createdAt'>) => void;
   updatePricingStrategy: (id: string, strategy: Partial<PricingStrategy>) => void;
+  togglePricingStrategyStatus: (id: string) => void;
   deletePricingStrategy: (id: string) => void;
   calculatePrice: (basePrice: number, customerType: string, partCategory: string, condition: string) => number;
 
@@ -51,6 +58,62 @@ interface AppState {
 
 const now = () => new Date().toISOString();
 
+const saveToLocalStorage = (state: Partial<AppState>) => {
+  try {
+    const data = {
+      vehicles: state.vehicles,
+      parts: state.parts,
+      customers: state.customers,
+      pricingStrategies: state.pricingStrategies,
+      quotes: state.quotes,
+      shipments: state.shipments,
+      warrantyClaims: state.warrantyClaims,
+      savedAt: now()
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    if (typeof window !== 'undefined' && (window as any).electronAPI) {
+      (window as any).electronAPI.saveData(STORAGE_KEY, data);
+    }
+  } catch (e) {
+    console.error('保存数据失败:', e);
+  }
+};
+
+const loadFromLocalStorage = async (): Promise<Partial<AppState> | null> => {
+  try {
+    let data = null;
+
+    if (typeof window !== 'undefined' && (window as any).electronAPI) {
+      data = await (window as any).electronAPI.loadData(STORAGE_KEY);
+    }
+
+    if (!data) {
+      const local = localStorage.getItem(STORAGE_KEY);
+      if (local) {
+        data = JSON.parse(local);
+      }
+    }
+
+    if (data && Array.isArray(data.vehicles)) {
+      return {
+        vehicles: data.vehicles,
+        parts: data.parts,
+        customers: data.customers,
+        pricingStrategies: data.pricingStrategies,
+        quotes: data.quotes,
+        shipments: data.shipments,
+        warrantyClaims: data.warrantyClaims,
+        dataLoaded: true
+      };
+    }
+    return null;
+  } catch (e) {
+    console.error('加载数据失败:', e);
+    return null;
+  }
+};
+
 export const useAppStore = create<AppState>((set, get) => ({
   vehicles: [],
   parts: [],
@@ -61,78 +124,175 @@ export const useAppStore = create<AppState>((set, get) => ({
   warrantyClaims: [],
   currentUser: '管理员',
   currentTime: now(),
+  dataLoaded: false,
 
-  initMockData: () => set({
-    vehicles: mockVehicles,
-    parts: mockParts,
-    customers: mockCustomers,
-    pricingStrategies: mockPricingStrategies,
-    quotes: mockQuotes,
-    shipments: mockShipments,
-    warrantyClaims: mockWarrantyClaims
-  }),
+  initMockData: () => {
+    const mockData = {
+      vehicles: mockVehicles,
+      parts: mockParts,
+      customers: mockCustomers,
+      pricingStrategies: mockPricingStrategies,
+      quotes: mockQuotes,
+      shipments: mockShipments,
+      warrantyClaims: mockWarrantyClaims
+    };
+    set(mockData);
+    saveToLocalStorage(mockData);
+  },
 
-  addVehicle: (vehicle) => set((state) => ({
-    vehicles: [...state.vehicles, { ...vehicle, id: `V${Date.now()}`, createdAt: now(), updatedAt: now() }]
-  })),
-  updateVehicle: (id, vehicle) => set((state) => ({
-    vehicles: state.vehicles.map(v => v.id === id ? { ...v, ...vehicle, updatedAt: now() } : v)
-  })),
-  deleteVehicle: (id) => set((state) => ({
-    vehicles: state.vehicles.filter(v => v.id !== id)
-  })),
+  loadFromStorage: async () => {
+    const saved = await loadFromLocalStorage();
+    if (saved) {
+      set({ ...saved, dataLoaded: true });
+      return true;
+    }
+    return false;
+  },
 
-  addPart: (part) => set((state) => ({
-    parts: [...state.parts, { ...part, id: `P${Date.now()}`, createdAt: now(), updatedAt: now() }]
-  })),
-  addPartsBatch: (parts) => set((state) => ({
-    parts: [...state.parts, ...parts.map(p => ({ ...p, id: `P${Date.now()}${Math.random().toString(36).slice(2, 7)}`, createdAt: now(), updatedAt: now() }))]
-  })),
-  updatePart: (id, part) => set((state) => ({
-    parts: state.parts.map(p => p.id === id ? { ...p, ...part, updatedAt: now() } : p)
-  })),
-  deletePart: (id) => set((state) => ({
-    parts: state.parts.filter(p => p.id !== id)
-  })),
-  reservePart: (partId, customerId, days) => set((state) => ({
-    parts: state.parts.map(p => p.id === partId ? {
+  saveToStorage: async () => {
+    saveToLocalStorage(get());
+  },
+
+  checkExpiredReservations: () => {
+    const state = get();
+    const nowTime = new Date();
+    let releasedCount = 0;
+
+    const updatedParts = state.parts.map(p => {
+      if (p.status === 'reserved' && p.reservedUntil) {
+        const expireTime = new Date(p.reservedUntil);
+        if (expireTime < nowTime) {
+          releasedCount++;
+          return {
+            ...p,
+            status: 'in_stock' as const,
+            reservedBy: undefined,
+            reservedUntil: undefined,
+            updatedAt: now()
+          };
+        }
+      }
+      return p;
+    });
+
+    if (releasedCount > 0) {
+      set({ parts: updatedParts });
+      saveToLocalStorage({ ...get(), parts: updatedParts });
+    }
+    return releasedCount;
+  },
+
+  addVehicle: (vehicle) => {
+    const newVehicle = { ...vehicle, id: `V${Date.now()}`, createdAt: now(), updatedAt: now() };
+    set((state) => ({ vehicles: [...state.vehicles, newVehicle] }));
+    saveToLocalStorage(get());
+  },
+  updateVehicle: (id, vehicle) => {
+    set((state) => ({
+      vehicles: state.vehicles.map(v => v.id === id ? { ...v, ...vehicle, updatedAt: now() } : v)
+    }));
+    saveToLocalStorage(get());
+  },
+  deleteVehicle: (id) => {
+    set((state) => ({ vehicles: state.vehicles.filter(v => v.id !== id) }));
+    saveToLocalStorage(get());
+  },
+
+  addPart: (part) => {
+    const newPart = { ...part, id: `P${Date.now()}`, createdAt: now(), updatedAt: now() };
+    set((state) => ({ parts: [...state.parts, newPart] }));
+    saveToLocalStorage(get());
+  },
+  addPartsBatch: (parts) => {
+    const newParts = parts.map(p => ({
       ...p,
-      status: 'reserved',
-      reservedBy: customerId,
-      reservedUntil: new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
-    } : p)
-  })),
-  releasePart: (partId) => set((state) => ({
-    parts: state.parts.map(p => p.id === partId ? {
-      ...p,
-      status: 'in_stock',
-      reservedBy: undefined,
-      reservedUntil: undefined
-    } : p)
-  })),
+      id: `P${Date.now()}${Math.random().toString(36).slice(2, 7)}`,
+      createdAt: now(),
+      updatedAt: now()
+    }));
+    set((state) => ({ parts: [...state.parts, ...newParts] }));
+    saveToLocalStorage(get());
+  },
+  updatePart: (id, part) => {
+    set((state) => ({
+      parts: state.parts.map(p => p.id === id ? { ...p, ...part, updatedAt: now() } : p)
+    }));
+    saveToLocalStorage(get());
+  },
+  deletePart: (id) => {
+    set((state) => ({ parts: state.parts.filter(p => p.id !== id) }));
+    saveToLocalStorage(get());
+  },
+  reservePart: (partId, customerId, reservedUntilDate) => {
+    set((state) => ({
+      parts: state.parts.map(p => p.id === partId ? {
+        ...p,
+        status: 'reserved' as const,
+        reservedBy: customerId,
+        reservedUntil: reservedUntilDate,
+        updatedAt: now()
+      } : p)
+    }));
+    saveToLocalStorage(get());
+  },
+  releasePart: (partId) => {
+    set((state) => ({
+      parts: state.parts.map(p => p.id === partId ? {
+        ...p,
+        status: 'in_stock' as const,
+        reservedBy: undefined,
+        reservedUntil: undefined,
+        updatedAt: now()
+      } : p)
+    }));
+    saveToLocalStorage(get());
+  },
 
-  addCustomer: (customer) => set((state) => ({
-    customers: [...state.customers, { ...customer, id: `C${Date.now()}`, createdAt: now(), updatedAt: now() }]
-  })),
-  updateCustomer: (id, customer) => set((state) => ({
-    customers: state.customers.map(c => c.id === id ? { ...c, ...customer, updatedAt: now() } : c)
-  })),
-  deleteCustomer: (id) => set((state) => ({
-    customers: state.customers.filter(c => c.id !== id)
-  })),
+  addCustomer: (customer) => {
+    const newCustomer = { ...customer, id: `C${Date.now()}`, createdAt: now(), updatedAt: now() };
+    set((state) => ({ customers: [...state.customers, newCustomer] }));
+    saveToLocalStorage(get());
+  },
+  updateCustomer: (id, customer) => {
+    set((state) => ({
+      customers: state.customers.map(c => c.id === id ? { ...c, ...customer, updatedAt: now() } : c)
+    }));
+    saveToLocalStorage(get());
+  },
+  deleteCustomer: (id) => {
+    set((state) => ({ customers: state.customers.filter(c => c.id !== id) }));
+    saveToLocalStorage(get());
+  },
 
-  addPricingStrategy: (strategy) => set((state) => ({
-    pricingStrategies: [...state.pricingStrategies, { ...strategy, id: `PS${Date.now()}`, createdAt: now() }]
-  })),
-  updatePricingStrategy: (id, strategy) => set((state) => ({
-    pricingStrategies: state.pricingStrategies.map(s => s.id === id ? { ...s, ...strategy } : s)
-  })),
-  deletePricingStrategy: (id) => set((state) => ({
-    pricingStrategies: state.pricingStrategies.filter(s => s.id !== id)
-  })),
+  addPricingStrategy: (strategy) => {
+    const newStrategy = { ...strategy, id: `PS${Date.now()}`, createdAt: now() };
+    set((state) => ({ pricingStrategies: [...state.pricingStrategies, newStrategy] }));
+    saveToLocalStorage(get());
+  },
+  updatePricingStrategy: (id, strategy) => {
+    set((state) => ({
+      pricingStrategies: state.pricingStrategies.map(s => s.id === id ? { ...s, ...strategy } : s)
+    }));
+    saveToLocalStorage(get());
+  },
+  togglePricingStrategyStatus: (id) => {
+    set((state) => ({
+      pricingStrategies: state.pricingStrategies.map(s =>
+        s.id === id ? { ...s, status: s.status === 'active' ? 'inactive' : 'active' } : s
+      )
+    }));
+    saveToLocalStorage(get());
+  },
+  deletePricingStrategy: (id) => {
+    set((state) => ({
+      pricingStrategies: state.pricingStrategies.filter(s => s.id !== id)
+    }));
+    saveToLocalStorage(get());
+  },
   calculatePrice: (basePrice, customerType, partCategory, condition) => {
     const state = get();
     const strategies = state.pricingStrategies.filter(s =>
+      s.status === 'active' &&
       s.customerType === customerType &&
       (!s.partCategory || s.partCategory === partCategory) &&
       (!s.condition || s.condition === condition)
@@ -146,39 +306,58 @@ export const useAppStore = create<AppState>((set, get) => ({
     return Math.round(basePrice * (1 + strategy.markupRate / 100) * (1 - strategy.discountRate / 100));
   },
 
-  addQuote: (quote) => set((state) => ({
-    quotes: [...state.quotes, { ...quote, id: `Q${Date.now()}`, createdAt: now(), updatedAt: now() }]
-  })),
-  updateQuote: (id, quote) => set((state) => ({
-    quotes: state.quotes.map(q => q.id === id ? { ...q, ...quote, updatedAt: now() } : q)
-  })),
-  deleteQuote: (id) => set((state) => ({
-    quotes: state.quotes.filter(q => q.id !== id)
-  })),
-  addNegotiation: (quoteId, offer, remark) => set((state) => ({
-    quotes: state.quotes.map(q => q.id === quoteId ? {
-      ...q,
-      negotiationHistory: [...q.negotiationHistory, {
-        time: now(),
-        operator: get().currentUser,
-        offer,
-        remark
-      }],
-      updatedAt: now()
-    } : q)
-  })),
+  addQuote: (quote) => {
+    const newQuote = { ...quote, id: `Q${Date.now()}`, createdAt: now(), updatedAt: now() };
+    set((state) => ({ quotes: [...state.quotes, newQuote] }));
+    saveToLocalStorage(get());
+  },
+  updateQuote: (id, quote) => {
+    set((state) => ({
+      quotes: state.quotes.map(q => q.id === id ? { ...q, ...quote, updatedAt: now() } : q)
+    }));
+    saveToLocalStorage(get());
+  },
+  deleteQuote: (id) => {
+    set((state) => ({ quotes: state.quotes.filter(q => q.id !== id) }));
+    saveToLocalStorage(get());
+  },
+  addNegotiation: (quoteId, offer, remark) => {
+    set((state) => ({
+      quotes: state.quotes.map(q => q.id === quoteId ? {
+        ...q,
+        negotiationHistory: [...q.negotiationHistory, {
+          time: now(),
+          operator: get().currentUser,
+          offer,
+          remark
+        }],
+        updatedAt: now()
+      } : q)
+    }));
+    saveToLocalStorage(get());
+  },
 
-  addShipment: (shipment) => set((state) => ({
-    shipments: [...state.shipments, { ...shipment, id: `S${Date.now()}`, createdAt: now() }]
-  })),
-  updateShipment: (id, shipment) => set((state) => ({
-    shipments: state.shipments.map(s => s.id === id ? { ...s, ...shipment } : s)
-  })),
+  addShipment: (shipment) => {
+    const newShipment = { ...shipment, id: `S${Date.now()}`, createdAt: now() };
+    set((state) => ({ shipments: [...state.shipments, newShipment] }));
+    saveToLocalStorage(get());
+  },
+  updateShipment: (id, shipment) => {
+    set((state) => ({
+      shipments: state.shipments.map(s => s.id === id ? { ...s, ...shipment } : s)
+    }));
+    saveToLocalStorage(get());
+  },
 
-  addWarrantyClaim: (claim) => set((state) => ({
-    warrantyClaims: [...state.warrantyClaims, { ...claim, id: `W${Date.now()}`, createdAt: now() }]
-  })),
-  updateWarrantyClaim: (id, claim) => set((state) => ({
-    warrantyClaims: state.warrantyClaims.map(w => w.id === id ? { ...w, ...claim } : w)
-  }))
+  addWarrantyClaim: (claim) => {
+    const newClaim = { ...claim, id: `W${Date.now()}`, createdAt: now() };
+    set((state) => ({ warrantyClaims: [...state.warrantyClaims, newClaim] }));
+    saveToLocalStorage(get());
+  },
+  updateWarrantyClaim: (id, claim) => {
+    set((state) => ({
+      warrantyClaims: state.warrantyClaims.map(w => w.id === id ? { ...w, ...claim } : w)
+    }));
+    saveToLocalStorage(get());
+  }
 }));

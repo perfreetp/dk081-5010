@@ -395,3 +395,85 @@ body {
   border-radius: 4px;
   display: inline-block;
 }
+
+.print-part-image {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid #e8e8e8;
+  display: block;
+  margin: 0 auto;
+}
+
+.no-image-placeholder {
+  width: 60px;
+  height: 60px;
+  margin: 0 auto;
+  background: #f5f5f5;
+  border: 1px dashed #d9d9d9;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #bfbfbf;
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.no-image-placeholder .anticon {
+  font-size: 20px;
+  margin-bottom: 2px;
+}
+
+.no-image-placeholder.hide {
+  display: none;
+}
+
+.hide {
+  display: none !important;
+}
+
+.required-field-label {
+  font-weight: 600;
+  color: #262626;
+}
+
+@media print {
+  .app-container,
+  .main-tabs,
+  .app-header,
+  .tab-panel,
+  .ant-modal-root,
+  .ant-modal-wrap,
+  .ant-modal-mask {
+    display: none !important;
+  }
+  body, html {
+    background: #fff !important;
+  }
+  .print-content {
+    display: block !important;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: 20px;
+  }
+  .print-part-image {
+    width: 70px !important;
+    height: 70px !important;
+    border: 1px solid #ddd !important;
+    display: block !important;
+  }
+  .no-image-placeholder {
+    width: 70px !important;
+    height: 70px !important;
+    display: flex !important;
+  }
+  .print-table td:nth-child(2) {
+    width: 90px;
+    padding: 6px !important;
+  }
+}

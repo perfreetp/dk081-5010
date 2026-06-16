@@ -2,17 +2,18 @@ import { useState, useMemo } from 'react';
 import {
   Card, Table, Button, Space, Input, Select, Tag, Modal, Form,
   InputNumber, Divider, Row, Col, message, Drawer, Descriptions,
-  Avatar, Badge, Statistic, List, Popconfirm
+  Avatar, Badge, Statistic, List, Popconfirm, Tabs, Switch, Tooltip
 } from 'antd';
 import {
   SearchOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
   PhoneOutlined, WechatOutlined, CrownOutlined,
   RiseOutlined, GiftOutlined, SafetyCertificateOutlined,
-  StarOutlined, TeamOutlined, UserOutlined, HeartOutlined
+  StarOutlined, TeamOutlined, UserOutlined, HeartOutlined,
+  SettingOutlined, CheckOutlined, StopOutlined, BarChartOutlined
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useAppStore } from '@/store/appStore';
-import type { Customer, Quote } from '@/types';
+import type { Customer, Quote, PricingStrategy, CustomerType, PartCondition } from '@/types';
 import dayjs from 'dayjs';
 
 const { Option } = Select;
@@ -32,19 +33,30 @@ const statusInfo: Record<string, { label: string; color: string }> = {
   blacklist: { label: '黑名单', color: 'error' }
 };
 
+const partCategories = ['发动机', '变速箱', '底盘', '电器', '灯光', '车身', '车门', '内饰', '轮毂', '其他'];
+
 export default function CustomerSeat() {
   const customers = useAppStore(s => s.customers);
   const quotes = useAppStore(s => s.quotes);
-  const parts = useAppStore(s => s.parts);
+  const pricingStrategies = useAppStore(s => s.pricingStrategies);
   const addCustomer = useAppStore(s => s.addCustomer);
   const updateCustomer = useAppStore(s => s.updateCustomer);
   const deleteCustomer = useAppStore(s => s.deleteCustomer);
+  const addPricingStrategy = useAppStore(s => s.addPricingStrategy);
+  const updatePricingStrategy = useAppStore(s => s.updatePricingStrategy);
+  const togglePricingStrategyStatus = useAppStore(s => s.togglePricingStrategyStatus);
+  const deletePricingStrategy = useAppStore(s => s.deletePricingStrategy);
+  const calculatePrice = useAppStore(s => s.calculatePrice);
 
+  const [activeTab, setActiveTab] = useState('customers');
   const [searchText, setSearchText] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>();
   const [modal, setModal] = useState<{ open: boolean; editing?: Customer }>({ open: false });
+  const [strategyModal, setStrategyModal] = useState<{ open: boolean; editing?: PricingStrategy }>({ open: false });
   const [detailDrawer, setDetailDrawer] = useState<Customer | null>(null);
   const [form] = Form.useForm();
+  const [strategyForm] = Form.useForm();
+  const [strategyTypeFilter, setStrategyTypeFilter] = useState<string>();
 
   const filteredCustomers = useMemo(() => {
     return customers.filter(c => {
@@ -56,6 +68,13 @@ export default function CustomerSeat() {
     });
   }, [customers, searchText, typeFilter]);
 
+  const filteredStrategies = useMemo(() => {
+    return pricingStrategies.filter(s => {
+      const matchType = !strategyTypeFilter || s.customerType === strategyTypeFilter;
+      return matchType;
+    });
+  }, [pricingStrategies, strategyTypeFilter]);
+
   const stats = useMemo(() => {
     const byType: Record<string, number> = {};
     customers.forEach(c => {
@@ -66,6 +85,15 @@ export default function CustomerSeat() {
       .reduce((s, q) => s + (q.acceptedPrice || q.finalAmount), 0);
     return { byType, active, totalDeal };
   }, [customers, quotes]);
+
+  const strategyStats = useMemo(() => {
+    const active = pricingStrategies.filter(s => s.status === 'active').length;
+    const byType: Record<string, number> = {};
+    pricingStrategies.forEach(s => {
+      byType[s.customerType] = (byType[s.customerType] || 0) + 1;
+    });
+    return { total: pricingStrategies.length, active, byType };
+  }, [pricingStrategies]);
 
   const openModal = (customer?: Customer) => {
     if (customer) {
@@ -94,6 +122,39 @@ export default function CustomerSeat() {
     });
   };
 
+  const openStrategyModal = (strategy?: PricingStrategy) => {
+    if (strategy) {
+      strategyForm.setFieldsValue(strategy);
+    } else {
+      strategyForm.resetFields();
+      strategyForm.setFieldsValue({
+        customerType: 'repair_shop',
+        markupRate: 50,
+        discountRate: 10,
+        status: 'active'
+      });
+    }
+    setStrategyModal({ open: true, editing: strategy });
+  };
+
+  const submitStrategy = () => {
+    strategyForm.validateFields().then(values => {
+      if (strategyModal.editing) {
+        updatePricingStrategy(strategyModal.editing.id, values);
+        message.success('报价策略已更新');
+      } else {
+        addPricingStrategy(values);
+        message.success('报价策略已添加');
+      }
+      setStrategyModal({ open: false });
+    });
+  };
+
+  const toggleStrategyStatus = (id: string, currentStatus: 'active' | 'inactive') => {
+    togglePricingStrategyStatus(id);
+    message.success(currentStatus === 'active' ? '策略已停用' : '策略已启用');
+  };
+
   const getCustomerStats = (customerId: string) => {
     const customerQuotes = quotes.filter(q => q.customerId === customerId);
     const totalQuotes = customerQuotes.length;
@@ -106,11 +167,10 @@ export default function CustomerSeat() {
     return { totalQuotes, acceptedCount: accepted.length, totalAmount, conversion, firstDeal, history: customerQuotes };
   };
 
-  const columns: ColumnsType<Customer> = [
+  const customerColumns: ColumnsType<Customer> = [
     {
       title: '客户名称', dataIndex: 'name', width: 200, fixed: 'left',
       render: (t, r) => {
-        const st = stats.byType;
         const custStats = getCustomerStats(r.id);
         const isBig = custStats.totalAmount >= 50000;
         return (
@@ -197,8 +257,85 @@ export default function CustomerSeat() {
     }
   ];
 
-  return (
-    <div className="tab-panel">
+  const strategyColumns: ColumnsType<PricingStrategy> = [
+    {
+      title: '适用客户', dataIndex: 'customerType', width: 120,
+      render: t => (
+        <Tag color={typeInfo[t]?.color || '#8c8c8c'} style={{ padding: '4px 10px' }}>
+          {typeInfo[t]?.icon} {typeInfo[t]?.label}
+        </Tag>
+      )
+    },
+    {
+      title: '适用品类', dataIndex: 'partCategory', width: 120,
+      render: t => t || <Tag color="default">全部品类</Tag>
+    },
+    {
+      title: '适用成色', dataIndex: 'condition', width: 100,
+      render: t => t ? (
+        <Tag color={({ A: 'green', B: 'blue', C: 'orange' } as any)[t] || 'default'}>
+          {t}级
+        </Tag>
+      ) : <Tag color="default">全部成色</Tag>
+    },
+    {
+      title: '加价率', dataIndex: 'markupRate', width: 100,
+      render: t => <span style={{ color: '#fa8c16', fontWeight: 600 }}>+{t}%</span>
+    },
+    {
+      title: '折扣率', dataIndex: 'discountRate', width: 100,
+      render: t => <span style={{ color: '#52c41a', fontWeight: 600 }}>-{t}%</span>
+    },
+    {
+      title: '实际报价', width: 180,
+      render: (_, r) => {
+        const demoBase = 10000;
+        const demoPrice = calculatePrice(demoBase, r.customerType, r.partCategory || '', r.condition || '');
+        const effectiveRate = Math.round((demoPrice / demoBase - 1) * 100);
+        return (
+          <div style={{ fontSize: 13 }}>
+            <div>示例: ¥{demoBase} → <span className="price-highlight">¥{demoPrice}</span></div>
+            <div style={{ color: effectiveRate >= 0 ? '#fa8c16' : '#52c41a' }}>
+              综合倍率: {effectiveRate >= 0 ? '+' : ''}{effectiveRate}%
+            </div>
+          </div>
+        );
+      }
+    },
+    {
+      title: '说明', dataIndex: 'description', ellipsis: true
+    },
+    {
+      title: '状态', dataIndex: 'status', width: 100,
+      render: (s, r) => (
+        <Tooltip title={s === 'active' ? '点击停用' : '点击启用'}>
+          <Switch
+            checked={s === 'active'}
+            checkedChildren={<CheckOutlined />}
+            unCheckedChildren={<StopOutlined />}
+            onChange={() => toggleStrategyStatus(r.id, s)}
+          />
+        </Tooltip>
+      )
+    },
+    {
+      title: '操作', key: 'action', width: 150, fixed: 'right',
+      render: (_, r) => (
+        <Space size="small">
+          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openStrategyModal(r)}>编辑</Button>
+          <Popconfirm
+            title="确认删除该策略？"
+            onConfirm={() => { deletePricingStrategy(r.id); message.success('已删除'); }}
+          >
+            <Button type="link" size="small" danger icon={<DeleteOutlined />}>删除</Button>
+          </Popconfirm>
+        </Space>
+      )
+    }
+  ];
+
+  const customerTabContent = (
+    <>
       <div className="stat-cards">
         <div className="stat-card">
           <div className="stat-icon primary"><TeamOutlined /></div>
@@ -265,7 +402,7 @@ export default function CustomerSeat() {
       </Card>
 
       <Table
-        columns={columns}
+        columns={customerColumns}
         dataSource={filteredCustomers}
         rowKey="id"
         size="middle"
@@ -274,6 +411,99 @@ export default function CustomerSeat() {
           pageSize: 10, showSizeChanger: true,
           showTotal: t => `共 ${t} 位客户`
         }}
+      />
+    </>
+  );
+
+  const strategyTabContent = (
+    <>
+      <div className="stat-cards">
+        <div className="stat-card">
+          <div className="stat-icon primary"><BarChartOutlined /></div>
+          <div className="stat-content">
+            <div className="stat-label">策略总数</div>
+            <div className="stat-value">{strategyStats.total}</div>
+            <div className="stat-sub">启用中 {strategyStats.active}</div>
+          </div>
+        </div>
+        {Object.entries(typeInfo).slice(0, 4).map(([k, v]) => (
+          <div className="stat-card" key={k} onClick={() => setStrategyTypeFilter(k)} style={{ cursor: 'pointer' }}>
+            <div className="stat-icon" style={{ background: v.color + '22', color: v.color }}>
+              <span style={{ fontSize: 24 }}>{v.icon}</span>
+            </div>
+            <div className="stat-content">
+              <div className="stat-label" style={{ color: v.color }}>{v.label}策略</div>
+              <div className="stat-value" style={{ color: v.color }}>{strategyStats.byType[k] || 0}</div>
+              <div className="stat-sub">点击筛选</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Card size="small" className="filter-card">
+        <Row gutter={16} align="middle">
+          <Col>
+            <Select
+              allowClear
+              placeholder="适用客户类型"
+              value={strategyTypeFilter}
+              onChange={setStrategyTypeFilter}
+              style={{ width: 200 }}
+            >
+              {Object.entries(typeInfo).map(([k, v]) => (
+                <Option key={k} value={k}>{v.icon} {v.label}</Option>
+              ))}
+            </Select>
+          </Col>
+          <Col flex="auto">
+            <span style={{ color: '#8c8c8c', fontSize: 13 }}>
+              <SafetyCertificateOutlined style={{ marginRight: 4, color: '#1677ff' }} />
+              报价台选客户后，系统自动按匹配度最高的策略算价。匹配优先级：客户类型 + 配件品类 + 成色 {'>>'} 客户类型 + 配件品类 {'>>'} 客户类型
+            </span>
+          </Col>
+          <Col>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => openStrategyModal()}>
+              新增策略
+            </Button>
+          </Col>
+        </Row>
+      </Card>
+
+      <Table
+        columns={strategyColumns}
+        dataSource={filteredStrategies}
+        rowKey="id"
+        size="middle"
+        scroll={{ x: 1400 }}
+        pagination={{
+          pageSize: 10, showSizeChanger: true,
+          showTotal: t => `共 ${t} 条策略`
+        }}
+      />
+
+      <Card size="small" style={{ marginTop: 16 }}>
+        <div style={{ color: '#8c8c8c', fontSize: 13, lineHeight: 1.8 }}>
+          <div style={{ fontWeight: 600, color: '#262626', marginBottom: 8 }}>
+            <SettingOutlined style={{ marginRight: 4 }} /> 报价规则说明
+          </div>
+          <div>• <b>加价率</b>：基于配件底价上浮的比例，如加价50%表示底价10000元的配件报价15000元</div>
+          <div>• <b>折扣率</b>：给客户的优惠折扣，如折扣10%表示报价再打9折</div>
+          <div>• <b>匹配逻辑</b>：系统按"客户类型+品类+成色"最精确匹配，越具体优先级越高</div>
+          <div>• <b>示例计算</b>：底价10000元 + 加价50% = 15000元 - 折扣10% = 13500元（最终报价）</div>
+        </div>
+      </Card>
+    </>
+  );
+
+  return (
+    <div className="tab-panel">
+      <Tabs
+        activeKey={activeTab}
+        onChange={setActiveTab}
+        items={[
+          { key: 'customers', label: <Space><TeamOutlined />客户管理</Space>, children: customerTabContent },
+          { key: 'strategies', label: <Space><SettingOutlined />报价策略</Space>, children: strategyTabContent }
+        ]}
       />
 
       <Modal
@@ -376,6 +606,90 @@ export default function CustomerSeat() {
           <Form.Item name="remark" label="备注">
             <TextArea rows={3} />
           </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={strategyModal.editing ? '编辑报价策略' : '新增报价策略'}
+        open={strategyModal.open}
+        onCancel={() => setStrategyModal({ open: false })}
+        onOk={submitStrategy}
+        width={700}
+        okText="保存"
+      >
+        <Form form={strategyForm} layout="vertical">
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="customerType" label="适用客户类型" rules={[{ required: true }]}>
+                <Select>
+                  {Object.entries(typeInfo).map(([k, v]) => (
+                    <Option key={k} value={k}>{v.icon} {v.label}</Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="status" label="状态" rules={[{ required: true }]}>
+                <Select>
+                  <Option value="active"><CheckOutlined /> 启用</Option>
+                  <Option value="inactive"><StopOutlined /> 停用</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="partCategory" label="适用配件品类（选填）">
+                <Select allowClear placeholder="不填则适用于所有品类">
+                  {partCategories.map(c => (
+                    <Option key={c} value={c}>{c}</Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="condition" label="适用成色（选填）">
+                <Select allowClear placeholder="不填则适用于所有成色">
+                  <Option value="A">A级 - 准新件</Option>
+                  <Option value="B">B级 - 优良件</Option>
+                  <Option value="C">C级 - 瑕疵件</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="markupRate" label="加价率(%)" rules={[{ required: true }]}>
+                <InputNumber style={{ width: '100%' }} min={0} max={200} suffix="%" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="discountRate" label="折扣率(%)" rules={[{ required: true }]}>
+                <InputNumber style={{ width: '100%' }} min={0} max={50} suffix="%" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="description" label="策略说明">
+            <Input placeholder="如：维修厂发动机件高量折扣" />
+          </Form.Item>
+
+          <Card size="small" style={{ background: '#fafafa' }}>
+            <div style={{ fontSize: 13, color: '#8c8c8c' }}>
+              <div style={{ marginBottom: 8 }}><b>实时预览</b>（以底价 ¥10,000 为例）</div>
+              {strategyForm.getFieldsValue().customerType && (
+                <div>
+                  最终报价：<span className="price-highlight" style={{ fontSize: 18 }}>
+                    ¥{calculatePrice(
+                      10000,
+                      strategyForm.getFieldsValue().customerType,
+                      strategyForm.getFieldsValue().partCategory || '',
+                      strategyForm.getFieldsValue().condition || ''
+                    ).toLocaleString()}
+                  </span>
+                </div>
+              )}
+            </div>
+          </Card>
         </Form>
       </Modal>
 

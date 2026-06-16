@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Tabs, Badge, Button, Space } from 'antd';
+import { Tabs, Badge, Button, Space, App as AntApp } from 'antd';
 import {
   CarOutlined, AuditOutlined, CalculatorOutlined,
   TeamOutlined, TruckOutlined, SafetyOutlined,
-  BellOutlined
+  BellOutlined, LoadingOutlined
 } from '@ant-design/icons';
 import { useAppStore } from '@/store/appStore';
 import VehicleInbound from '@/pages/VehicleInbound';
@@ -16,24 +16,78 @@ import dayjs from 'dayjs';
 
 export default function App() {
   const initMockData = useAppStore(state => state.initMockData);
+  const loadFromStorage = useAppStore(state => state.loadFromStorage);
+  const checkExpiredReservations = useAppStore(state => state.checkExpiredReservations);
   const quotes = useAppStore(state => state.quotes);
   const shipments = useAppStore(state => state.shipments);
   const warrantyClaims = useAppStore(state => state.warrantyClaims);
   const currentUser = useAppStore(state => state.currentUser);
+  const { message } = AntApp.useApp();
 
   const [now, setNow] = useState(dayjs().format('YYYY-MM-DD HH:mm:ss'));
+  const [loading, setLoading] = useState(true);
+  const [expiredCount, setExpiredCount] = useState(0);
 
   useEffect(() => {
-    initMockData();
-    const timer = setInterval(() => {
+    const init = async () => {
+      try {
+        const hasData = await loadFromStorage();
+        if (!hasData) {
+          initMockData();
+          message.info('首次启动，已加载演示数据');
+        } else {
+          message.success('数据加载成功');
+        }
+        const released = checkExpiredReservations();
+        if (released > 0) {
+          setExpiredCount(released);
+          message.warning(`检测到 ${released} 个过期预留件，已自动释放回可售库存`);
+        }
+      } catch (e) {
+        console.error('初始化失败:', e);
+        initMockData();
+      } finally {
+        setLoading(false);
+      }
+    };
+    init();
+
+    const timeTimer = setInterval(() => {
       setNow(dayjs().format('YYYY-MM-DD HH:mm:ss'));
     }, 1000);
-    return () => clearInterval(timer);
-  }, [initMockData]);
+
+    const expiredTimer = setInterval(() => {
+      const released = checkExpiredReservations();
+      if (released > 0) {
+        setExpiredCount(c => c + released);
+        message.warning(`自动释放 ${released} 个过期预留件`);
+      }
+    }, 60 * 1000);
+
+    return () => {
+      clearInterval(timeTimer);
+      clearInterval(expiredTimer);
+    };
+  }, [initMockData, loadFromStorage, checkExpiredReservations]);
 
   const negotiatingQuotes = quotes.filter(q => q.status === 'negotiating').length;
   const pendingShipments = shipments.filter(s => s.status === 'pending' || s.status === 'packed').length;
   const pendingClaims = warrantyClaims.filter(w => w.status === 'pending').length;
+
+  if (loading) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        height: '100vh', fontSize: 18, color: '#666',
+        background: '#f0f2f5'
+      }}>
+        <Space>
+          <LoadingOutlined style={{ fontSize: 24 }} />
+          正在加载数据...
+        </Space>
+      </div>
+    );
+  }
 
   const tabItems = [
     {

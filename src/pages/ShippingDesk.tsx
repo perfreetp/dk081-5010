@@ -52,7 +52,7 @@ export default function ShippingDesk() {
 
   const [activeTab, setActiveTab] = useState<string>('all');
   const [searchText, setSearchText] = useState('');
-  const [modalState, setModalState] = useState<{ open: boolean; editing?: Shipment }>({ open: false });
+  const [modalState, setModalState] = useState<{ open: boolean; editing?: Shipment; isBackfill?: boolean }>({ open: false });
   const [detailDrawer, setDetailDrawer] = useState<Shipment | null>(null);
   const [printModal, setPrintModal] = useState<{ shipment: Shipment; type: 'self' | 'pack' } | null>(null);
   const [form] = Form.useForm();
@@ -93,6 +93,39 @@ export default function ShippingDesk() {
       status: 'pending'
     });
     setModalState({ open: true });
+  };
+
+  const openEditShipment = (shipment: Shipment, isBackfill: boolean = false) => {
+    form.resetFields();
+    form.setFieldsValue({
+      quoteId: shipment.quoteId,
+      customerId: shipment.customerId,
+      customerName: shipment.customerName,
+      shippingMethod: shipment.shippingMethod,
+      receiver: shipment.receiver,
+      receiverPhone: shipment.receiverPhone,
+      receiverAddress: shipment.receiverAddress,
+      items: shipment.items.map((item, idx) => ({
+        key: `${item.partId}-${idx}`,
+        partId: item.partId,
+        partName: item.partName,
+        sku: item.sku,
+        quantity: item.quantity
+      })),
+      logisticsCompany: shipment.logisticsCompany,
+      trackingNumber: shipment.trackingNumber,
+      logisticsFee: shipment.logisticsFee || 0,
+      woodPackingFee: shipment.woodPackingFee || 0,
+      otherFees: shipment.otherFees || 0,
+      insuranceFee: shipment.insuranceFee || 0,
+      weight: shipment.weight,
+      packages: shipment.packages,
+      status: shipment.status,
+      shippedDate: shipment.shippedDate ? dayjs(shipment.shippedDate) : undefined,
+      receivedDate: shipment.receivedDate ? dayjs(shipment.receivedDate) : undefined,
+      remark: shipment.remark
+    });
+    setModalState({ open: true, editing: shipment, isBackfill });
   };
 
   const openCreateFromQuote = (quote: Quote) => {
@@ -270,11 +303,7 @@ export default function ShippingDesk() {
           <Button type="link" size="small" onClick={() => setDetailDrawer(r)}>详情</Button>
           {r.status !== 'delivered' && r.status !== 'cancelled' && (
             <Button type="link" size="small" onClick={() => {
-              modal.confirm({
-                title: '回填物流信息？',
-                content: '请在弹窗中填写物流单号和费用',
-                onOk: () => setModalState({ open: true, editing: r })
-              });
+              openEditShipment(r, true);
             }}>回填物流</Button>
           )}
           {r.shippingMethod === 'self_pickup' ? (
@@ -420,7 +449,11 @@ export default function ShippingDesk() {
       />
 
       <Modal
-        title={modalState.editing ? `编辑发货单 - ${modalState.editing.shipmentNumber}` : '新建发货单'}
+        title={modalState.isBackfill
+          ? `📦 回填物流信息 - ${modalState.editing?.shipmentNumber}`
+          : modalState.editing
+            ? `编辑发货单 - ${modalState.editing.shipmentNumber}`
+            : '新建发货单'}
         open={modalState.open}
         onCancel={() => setModalState({ open: false })}
         onOk={submitShipment}
@@ -428,6 +461,24 @@ export default function ShippingDesk() {
         okText="保存发货单"
         destroyOnClose
       >
+        {modalState.isBackfill && modalState.editing && (
+          <Card size="small" style={{ marginBottom: 16, background: '#e6f7ff', borderColor: '#91d5ff' }}>
+            <Row gutter={16}>
+              <Col span={8}>
+                <strong>客户：</strong>{modalState.editing.customerName}
+              </Col>
+              <Col span={8}>
+                <strong>收件人：</strong>{modalState.editing.receiver} · {modalState.editing.receiverPhone}
+              </Col>
+              <Col span={8}>
+                <strong>配件数：</strong>{modalState.editing.items.length} 种 / {modalState.editing.items.reduce((s, i) => s + i.quantity, 0)} 件
+              </Col>
+            </Row>
+            <div style={{ marginTop: 8, fontSize: 12, color: '#1677ff' }}>
+              💡 以下客户和配件信息已自动带出，请补充物流信息和费用即可
+            </div>
+          </Card>
+        )}
         <Form form={form} layout="vertical">
           <div className="detail-section-title">基础信息</div>
           <Row gutter={16}>
@@ -436,6 +487,7 @@ export default function ShippingDesk() {
                 <Select
                   showSearch optionFilterProp="children"
                   placeholder="选择客户"
+                  disabled={!!modalState.editing}
                   onChange={(val, opt: any) => {
                     const c = customers.find(x => x.name === val);
                     if (c) {
@@ -455,7 +507,7 @@ export default function ShippingDesk() {
             </Col>
             <Col span={5}>
               <Form.Item name="shippingMethod" label="发货方式" rules={[{ required: true }]}>
-                <Select>
+                <Select disabled={!!modalState.editing}>
                   {Object.entries(shippingMethodInfo).map(([k, v]) => (
                     <Option key={k} value={k}>{v.label}</Option>
                   ))}
@@ -473,7 +525,7 @@ export default function ShippingDesk() {
             </Col>
             <Col span={6}>
               <Form.Item name="quoteId" label="关联报价单">
-                <Select allowClear placeholder="选填">
+                <Select allowClear placeholder="选填" disabled={!!modalState.editing}>
                   {quotes.map(q => (
                     <Option key={q.id} value={q.id}>{q.quoteNumber} - ¥{q.finalAmount}</Option>
                   ))}
@@ -485,13 +537,19 @@ export default function ShippingDesk() {
           <div className="detail-section-title">收货信息</div>
           <Row gutter={16}>
             <Col span={8}>
-              <Form.Item name="receiver" label="收件人" rules={[{ required: true }]}><Input /></Form.Item>
+              <Form.Item name="receiver" label="收件人" rules={[{ required: true }]}>
+                <Input disabled={!!modalState.editing} />
+              </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item name="receiverPhone" label="联系电话" rules={[{ required: true }]}><Input /></Form.Item>
+              <Form.Item name="receiverPhone" label="联系电话" rules={[{ required: true }]}>
+                <Input disabled={!!modalState.editing} />
+              </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item name="receiverAddress" label="收件地址" rules={[{ required: true }]}><Input /></Form.Item>
+              <Form.Item name="receiverAddress" label="收件地址" rules={[{ required: true }]}>
+                <Input disabled={!!modalState.editing} />
+              </Form.Item>
             </Col>
           </Row>
 
@@ -510,6 +568,7 @@ export default function ShippingDesk() {
                     placeholder="搜索/SKU/名称"
                     value={r.partId || undefined}
                     style={{ width: '100%' }}
+                    disabled={!!modalState.editing}
                     onChange={(v) => {
                       const part = parts.find(p => p.id === v);
                       if (part) {
@@ -533,26 +592,43 @@ export default function ShippingDesk() {
                 title: '数量', width: 90,
                 render: (_, r: any) => (
                   <InputNumber min={1} size="small" value={r.quantity}
+                    disabled={!!modalState.editing}
                     onChange={v => updateItem(r.key, 'quantity', v || 1)}
                     style={{ width: '100%' }} />
                 )
               },
               {
                 title: '', width: 50, align: 'center',
-                render: (_, r: any) => (
+                render: (_, r: any) => !modalState.editing ? (
                   <Button type="text" danger size="small" onClick={() => removeItem(r.key)}>删除</Button>
-                )
+                ) : null
               }
             ]}
           />
-          <Button type="dashed" block size="small" style={{ marginTop: 8 }} onClick={addItem}>
-            + 添加一行
-          </Button>
+          {!modalState.editing && (
+            <Button type="dashed" block size="small" style={{ marginTop: 8 }} onClick={addItem}>
+              + 添加一行
+            </Button>
+          )}
 
-          <div className="detail-section-title" style={{ marginTop: 16 }}>物流信息回填</div>
+          <div className="detail-section-title" style={{ marginTop: 16 }}>
+            {modalState.isBackfill ? (
+              <span style={{ color: '#1677ff' }}>
+                <CheckCircleOutlined style={{ marginRight: 4 }} />
+                物流信息回填 <span style={{ fontSize: 12, fontWeight: 400 }}>（以下为必填项）</span>
+              </span>
+            ) : '物流信息回填'}
+          </div>
           <Row gutter={16}>
             <Col span={8}>
-              <Form.Item name="logisticsCompany" label="物流公司">
+              <Form.Item
+                name="logisticsCompany"
+                label={
+                  <span className={modalState.isBackfill ? 'required-field-label' : ''}>
+                    物流公司 {modalState.isBackfill && <span style={{ color: '#ff4d4f' }}>*</span>}
+                  </span>
+                }
+              >
                 <Select allowClear showSearch>
                   {['顺丰', '德邦', '安能', '中通', '圆通', '京东物流', '壹米滴答', '天地华宇'].map(c => (
                     <Option key={c} value={c}>{c}</Option>
@@ -561,7 +637,14 @@ export default function ShippingDesk() {
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item name="trackingNumber" label="运单号">
+              <Form.Item
+                name="trackingNumber"
+                label={
+                  <span className={modalState.isBackfill ? 'required-field-label' : ''}>
+                    运单号 {modalState.isBackfill && <span style={{ color: '#ff4d4f' }}>*</span>}
+                  </span>
+                }
+              >
                 <Input prefix={<ScanOutlined />} placeholder="扫描或输入运单号" />
               </Form.Item>
             </Col>
@@ -578,12 +661,26 @@ export default function ShippingDesk() {
               </Form.Item>
             </Col>
             <Col span={6}>
-              <Form.Item name="logisticsFee" label="运费(¥)">
+              <Form.Item
+                name="logisticsFee"
+                label={
+                  <span className={modalState.isBackfill ? 'required-field-label' : ''}>
+                    运费(¥) {modalState.isBackfill && <span style={{ color: '#ff4d4f' }}>*</span>}
+                  </span>
+                }
+              >
                 <InputNumber prefix="¥" style={{ width: '100%' }} min={0} />
               </Form.Item>
             </Col>
             <Col span={6}>
-              <Form.Item name="woodPackingFee" label="打木架(¥)">
+              <Form.Item
+                name="woodPackingFee"
+                label={
+                  <span className={modalState.isBackfill ? 'required-field-label' : ''}>
+                    打木架(¥) {modalState.isBackfill && <span style={{ color: '#ff4d4f' }}>*</span>}
+                  </span>
+                }
+              >
                 <InputNumber prefix="¥" style={{ width: '100%' }} min={0} />
               </Form.Item>
             </Col>
@@ -631,7 +728,7 @@ export default function ShippingDesk() {
             ) : (
               <Button onClick={() => setPrintModal({ shipment: detailDrawer!, type: 'pack' })}>打印打包清单</Button>
             )}
-            <Button type="primary" onClick={() => { setDetailDrawer(null); setModalState({ open: true, editing: detailDrawer! }); }}>
+            <Button type="primary" onClick={() => { setDetailDrawer(null); openEditShipment(detailDrawer!, false); }}>
               编辑
             </Button>
           </Space>
